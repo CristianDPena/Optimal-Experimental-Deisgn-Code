@@ -28,30 +28,32 @@ def D_partials(x: np.ndarray, p):
 # ===================================================================
 
 def build_L_matrix(x, D_vals):
-    # Build the forward operator L using finite differences
+    # Build the forward operator L using finite differences (Fokker-Planck style)
     N = x.size
     dx = x[1] - x[0]
-    Dph = 0.5 * (D_vals[:-1] + D_vals[1:])  # D at half-points (D_{j+1/2})
-
-    main = np.zeros(N)  # Main diagonal of L matrix (j terms)
-    upper = np.zeros(N - 1)  # Upper diagonal (j+1 terms)
-    lower = np.zeros(N - 1)  # Lower diagonal (j-1 terms)
-
-    # Fill interior points using finite difference stencil
-    for i in range(1, N - 1):
-        ai = Dph[i - 1] / dx ** 2  # D_{i-1/2}(f_i - f_{i-1})/dx^2
-        ci = Dph[i] / dx ** 2  # D_{i+1/2}(f_{i+1} - f_i)/dx^2
-        main[i] = -(ai + ci)  #-(ai + ci)
-        lower[i - 1] = ai  #ai
-        upper[i] = ci #ci
-
-    #apply zero-Dirichlet boundary conditions (f_0 = f_{N-1} = 0)
-    main[0] = -Dph[0] / dx ** 2  #left boundary main diagonal
-    upper[0] = Dph[0] / dx ** 2  #left boundary upper diagonal
-    lower[-1] = Dph[-1] / dx ** 2  #right boundary lower diagonal
-    main[-1] = -Dph[-1] / dx ** 2  #right boundary main diagonal
-
-    return diags([lower, main, upper], offsets=[-1, 0, 1], format='csc')
+    
+    # Initialize empty Nx x Nx matrix
+    L_matrix = np.zeros((N, N))
+    
+    for j in range(1, N-1):
+        # Indices: j-1, j, j+1
+        xm = x[j-1]
+        x0 = x[j]
+        xp = x[j+1]
+        
+        xm0 = xm/x0
+        xp0 = xp/x0
+        
+        # Diffusion part: D * second difference with coordinate transformation
+        L_matrix[j, j-1] += xm0*xm0*D_vals[j-1]/ dx**2
+        L_matrix[j, j]   -= (xm0*xm0*D_vals[j-1] + xp0*xp0*D_vals[j+1])/ dx**2
+        L_matrix[j, j+1] += xp0*xp0*D_vals[j+1]/ dx**2
+    
+    # Dirichlet boundary conditions: f(x_min) = f(x_max) = 0
+    L_matrix[0, :] = 0.0
+    L_matrix[-1, :] = 0.0
+    
+    return scipy.sparse.csc_matrix(L_matrix)
 
 
 def forward_solve(p, x, t, u0):
@@ -59,21 +61,22 @@ def forward_solve(p, x, t, u0):
     N = x.size
     M = t.size
     dt = t[1] - t[0]
-
+    
     # Build L with current parameter values
     L = build_L_matrix(x, D_param(x, p))
-    I = diags([np.ones(N)], [0], format='csc')  #identity matrix
-
-    #Factor the system matrix A = I - dt*L for implicit Euler
-    LU = splu((I - dt * L).tocsc())
-
-    f = np.zeros((M, N))     # Initialize solution array
-    f[0] = u0.copy()  # Set initial condition of f
-
-    #solve (I - dt*L)f^{n+1} = f^n
+    I = scipy.sparse.eye(N, format='csc')
+    
+    # Factor the system matrix A = I - dt*L for implicit Euler
+    A = I - dt * L
+    Alu = splu(A.tocsc())
+    
+    f = np.zeros((M, N))
+    f[0] = u0.copy()
+    
+    # Time stepping
     for n in range(1, M):
-        f[n] = LU.solve(f[n - 1])  # f^{n+1} = A^{-1} * f^n
-
+        f[n] = Alu.solve(f[n-1])
+    
     return f
 
 # ===================================================================
@@ -156,19 +159,20 @@ def adjoint_solve(p, f, inj, x, t):
     # Solve adjoint equation backwards in time
     M, N = f.shape
     dt = t[1] - t[0]
-
+    
     # Build adjoint operator L^T
-    L = build_L_matrix(x, D_param(x, p))  # Forward operator
-    I = diags([np.ones(N)], [0], format='csc')  #Identity matrix
-    LU_adj = splu((I - dt * L.T).tocsc())  # Factor (I - dt*L^T)
-
-    lam = np.zeros((M, N))     # Initialize adjoint variable
-    lam[-1] = inj[-1]  # Terminal condition: lambda^M = inj^M
-
+    L = build_L_matrix(x, D_param(x, p))
+    I = scipy.sparse.eye(N, format='csc')
+    A_adj = I - dt * L.T
+    LU_adj = splu(A_adj.tocsc())
+    
+    lam = np.zeros((M, N))
+    lam[-1] = inj[-1]
+    
     # Backward time stepping
     for n in range(M - 2, -1, -1):
-        lam[n] = LU_adj.solve(lam[n + 1] + inj[n]) # (I - dt*L^T)lambda^n = lambda^{n+1} + inj^n
-
+        lam[n] = LU_adj.solve(lam[n + 1] + inj[n])
+    
     return lam
 
 # ===================================================================
