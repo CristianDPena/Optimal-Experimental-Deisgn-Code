@@ -298,7 +298,7 @@ def _build_J_global_adj(p, data, x_cand, t_cand):
 
 def _greedy_d_optimal(p_hat, data, x_cand, t_cand, K_new, sigma2_new):
     # Greedy D-optimal selection using global sensitivities
-    J = _build_J_global_adj(p_hat, data, x_cand, t_cand) # Compute sensitivity matrix
+    J = _build_J_global_fd(p_hat, data, x_cand, t_cand, eps=1e-6) # Compute sensitivity matrix
     J /= np.sqrt(sigma2_new)  # Scale by observation standard deviation
 
     n_par = J.shape[1]  # Number of parameters
@@ -580,7 +580,7 @@ if __name__ == "__main__":
     m_cand = len(x_cand)  # Number of candidate points
 
     # Compute sensitivity matrix for all candidates
-    J_all = _build_J_global_adj(p_hat, data, x_cand, t_cand)
+    J_all = _build_J_global_fd(p_hat, data, x_cand, t_cand, eps=1e-6)
     det_opt = det_fim  # D-optimal determinant
 
     # Compare against random designs
