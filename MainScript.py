@@ -689,6 +689,48 @@ if __name__ == "__main__":
     d0_traj = np.exp(theta0_traj)  # Trajectory-based d_0 estimate
 
     # ---------------------------------------------------------------
+    # Fuurther diagnostics: 99-th-Percentile Random Design
+    # ---------------------------------------------------------------
+
+    # identify which random design achieved the 99-th-percentile det(FIM) ---
+    #det_rand and the loop that filled it were created earlier (see lines 37-46):contentReference[oaicite:0]{index=0}
+    idx_99 = np.argsort(det_rand)[int(0.99 * n_random) - 1]        # index of design closest to 99-th pct
+    rng = np.random.default_rng(rngOED_seed)                       # reset RNG so we can recreate designs
+    rand_sets = [rng.choice(J_all.shape[0], size=K_extra, replace=False)
+                for _ in range(n_random)]                         # replicate the original random sets
+    rand_sel = rand_sets[idx_99]                                   # indices of the 99-th-pct design
+
+    # --- 2.  generate synthetic observations at those points -------------
+    x_rand = x_cand[rand_sel]
+    t_rand = t_cand[rand_sel]
+    y_rand = apply_H(f_true, precompute_obs_weights(x, t, x_rand, t_rand))
+    y_rand += rng.normal(scale=noise, size=y_rand.size)
+    sigma2_rand = np.full_like(y_rand, noise ** 2)
+
+    # --- 3.  augment the data set ---------------------------------------
+    x_aug_r   = np.concatenate([data.x_obs, x_rand])
+    t_aug_r   = np.concatenate([data.t_obs, t_rand])
+    y_aug_r   = np.concatenate([data.y_obs, y_rand])
+    sigma2_r  = np.concatenate([data.sigma2, sigma2_rand])
+
+    data_rand = InverseData(
+        x=x, t=t, u0=u0,
+        x_obs=x_aug_r, t_obs=t_aug_r, y_obs=y_aug_r,
+        sigma2=sigma2_r,
+        prior=data.prior, prior_std=data.prior_std
+    )
+    data_rand.H_weights = precompute_obs_weights(x, t, x_aug_r, t_aug_r)
+
+    # --- 4.  resolve the inverse problem with the augmented data ---------
+    result_rand = scipy.optimize.minimize(
+        cost_and_grad, p_hat, args=(data_rand,),
+        method='L-BFGS-B', bounds=bounds, jac=True,
+        options={'ftol': 1e-11, 'gtol': 1e-11, 'maxiter': 400, 'maxls': 40}
+    )
+    theta0_r, alpha_r = result_rand.x
+    d0_r = np.exp(theta0_r)
+
+    # ---------------------------------------------------------------
     # Error Analysis and Reporting
     # ---------------------------------------------------------------
     # Define true parameter values
@@ -704,6 +746,11 @@ if __name__ == "__main__":
     err_after = np.abs(after - truth)  # Errors after grid OED
     err_after_traj = np.abs(after_traj - truth)  # Errors after trajectory OED
 
+    #Compute random deisng
+    after_rand = np.array([d0_r, alpha_r])
+    err_after_rand = np.abs(after_rand - truth)
+
+
     print("\nAccuracy improvement after adding Grid-OED data:")
     print(f"d0 error:  before OED = {err_before[0]:.3e}   after OED = {err_after[0]:.3e}")
     print(f"alpha error: before OED = {err_before[1]:.3e}   after OED = {err_after[1]:.3e}")
@@ -711,6 +758,11 @@ if __name__ == "__main__":
     print("\nAccuracy improvement after adding Trajectory-based OED data:")
     print(f"d0 error:  before OED = {err_before[0]:.3e}   after OED = {err_after_traj[0]:.3e}")
     print(f"alpha error: before OED = {err_before[1]:.3e}   after OED = {err_after_traj[1]:.3e}")
+
+    print("\nAccuracy improvement after adding 99-th-percentile Random data:")
+    print(f"d0 error:  before OED = {err_before[0]:.3e}   after OED = {err_after_rand[0]:.3e}")
+    print(f"alpha error: before OED = {err_before[1]:.3e}   after OED = {err_after_rand[1]:.3e}")
+
 
     # ---------------------------------------------------------------
     # Visualization
