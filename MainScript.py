@@ -689,11 +689,10 @@ if __name__ == "__main__":
     d0_traj = np.exp(theta0_traj)  # Trajectory-based d_0 estimate
 
     # ---------------------------------------------------------------
-    # Fuurther diagnostics: 99-th-Percentile Random Design
+    # Validation: 99th percentile random points
     # ---------------------------------------------------------------
 
-    # identify which random design achieved the 99-th-percentile det(FIM) ---
-    #det_rand and the loop that filled it were created earlier (see lines 37-46):contentReference[oaicite:0]{index=0}
+    # identify which random design achieved the 99-th-percentile det(FIM)
     idx_99 = np.argsort(det_rand)[int(0.99 * n_random) - 1]        # index of design closest to 99-th pct
     rng = np.random.default_rng(rngOED_seed)                       # reset RNG so we can recreate designs
     rand_sets = [rng.choice(J_all.shape[0], size=K_extra, replace=False)
