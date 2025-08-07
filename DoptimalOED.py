@@ -1,0 +1,160 @@
+import numpy as np
+import scipy
+from scipy.sparse import diags
+from scipy.sparse.linalg import splu
+from scipy.optimize import minimize, Bounds
+from dataclasses import dataclass
+from typing import Tuple, List
+import matplotlib.pyplot as plt
+
+#forward solver
+from fplanck import forward_solve
+
+#bilinear weights, H matrix
+from bilinearinterpolation import precompute_obs_weights, apply_H
+
+#build source term from observation residuals, solve lambda, solve gradient
+from adjointgradient import build_injection, adjoint_solve, compute_gradient_adjoint
+
+# ===================================================================
+# SECTION 8: OPTIMAL EXPERIMENTAL DESIGN (OED) UTILITIES
+# ===================================================================
+
+def _build_J_global_adj(p, data, x_cand, t_cand):
+    # Build sensitivity matrix J using adjoint method
+    f_pred = forward_solve(p, data.x, data.t, data.u0)  # Solve forward problem for all candidate points
+
+    # Ensure observation weights are computed
+    if data.obs_w is None:
+        data.obs_w = precompute_obs_weights(data.x, data.t, data.x_obs, data.t_obs)
+        data.dt = data.t[1] - data.t[0]
+
+    m = x_cand.size  # Number of candidate points
+    J = np.empty((m, len(p)), dtype=float)  # Sensitivity matrix
+
+    # Compute sensitivity for each candidate point
+    for i, (xi, ti) in enumerate(zip(x_cand, t_cand)):
+        # Create observation weights for single point
+        w_pt = precompute_obs_weights(data.x, data.t, np.array([xi]), np.array([ti]))
+
+        # Unit residual for sensitivity calculation
+        r = np.array([1])
+
+        # Build injection and solve adjoint
+        inj = build_injection(w_pt, r, np.ones_like(r), len(data.t), len(data.x), data.dt)
+        lam = adjoint_solve(p, f_pred, inj, data.x, data.t)
+
+        # Compute gradient (sensitivity) for this point
+        grad_i = compute_gradient_adjoint(p, f_pred, lam, data.x, data.t,
+                                          data.prior, data.prior_std, add_prior=False)
+        J[i] = grad_i
+
+    return J
+
+def _build_J_global_fd(p, data, x_cand, t_cand, eps=1e-6):
+    # Build sensitivity matrix using finite differences
+    n_par = len(p)
+    m_cand = x_cand.size
+
+    # Solve forward problem at baseline parameters
+    f_base = forward_solve(p, data.x, data.t, data.u0)
+    H_w_cand = precompute_obs_weights(data.x, data.t, x_cand, t_cand)
+    J = np.empty((m_cand, n_par), dtype=float)  # Sensitivity matrix
+
+    # Compute finite difference sensitivity for each parameter
+    for j in range(n_par):
+        p_shift = p.copy()  # Copy baseline parameters
+        p_shift[j] += eps  # Perturb j-th parameter
+        f_shift = forward_solve(p_shift, data.x, data.t, data.u0)  # Solve with perturbed parameters
+        sens_field = (f_shift - f_base) / eps  # Finite difference sensitivity field
+        J[:, j] = apply_H(sens_field, H_w_cand)  # Apply observation operator
+
+    return J
+
+# ===================================================================
+# SECTION 9: GRID-BASED OPTIMAL EXPERIMENTAL DESIGN
+# ===================================================================
+
+def _candidate_grid(x_lo_hi, t_lo_hi, n_x=25, n_t=20):
+    # Generate grid of candidate (t,x) locations
+    xs = np.linspace(x_lo_hi[0], x_lo_hi[1], n_x, dtype=float)  # Spatial candidates
+    ts = np.linspace(t_lo_hi[0], t_lo_hi[1], n_t, dtype=float)  # Time candidates
+    Tm, Xm = np.meshgrid(ts, xs, indexing="xy")  # Create meshgrid
+    return Xm.ravel(), Tm.ravel()
+
+def _greedy_d_optimal(p_hat, data, x_cand, t_cand, K_new, sigma2_new):
+    # Greedy D-optimal selection using global sensitivities
+    J = _build_J_global_fd(p_hat, data, x_cand, t_cand, eps=1e-6) # Compute sensitivity matrix
+    J /= np.sqrt(sigma2_new)  # Scale by observation standard deviation
+
+    n_par = J.shape[1]  # Number of parameters
+    m_cand = J.shape[0]  # Number of candidate points
+    sel = []  # Selected indices
+    FIM = np.zeros((n_par, n_par))  #initialize Fisher Information Matrix
+    remaining = list(range(m_cand))  # Remaining candidate indices
+
+    # Greedy selection (pick point that maximizes det(FIM))
+    for _ in range(K_new):
+        best_det, best_idx = -np.inf, None
+
+        # Try each remaining candidate
+        for idx in remaining:
+            v = J[idx][:, None]  # Sensitivity vector for this candidate
+            det = np.linalg.det(FIM + v @ v.T)  # Determinant after adding this point
+            if det > best_det:
+                best_det, best_idx = det, idx
+
+        # Add best candidate to selection
+        sel.append(best_idx)
+        FIM += J[best_idx][:, None] @ J[best_idx][:, None].T  # Update FIM
+        remaining.remove(best_idx)  # Remove from candidates
+
+    return np.array(sel, int), np.linalg.det(FIM)
+
+
+# ===================================================================
+# SECTION 10: TRAJECTORY-BASED OPTIMAL EXPERIMENTAL DESIGN
+# ===================================================================
+def _traj_x(t, pars):
+    # Oscillating parabola trajectory: x(t) = (a_2*t^2 + a_1*t + a_0) + A*sin(omega*t + phi)
+    a2, a1, a0, A, omg, phi = pars  # Extract trajectory parameters
+    return a2 * t * t + a1 * t + a0 + A * np.sin(omg * t + phi)  # Compute trajectory
+
+def _fim_of_traj(pars, p_hat, data, t_lo, t_hi, n_pts, sigma2, eps_fd=1e-6):
+    # Compute det(FIM) for a trajectory with given parameters
+    t_samp = np.linspace(t_lo, t_hi, n_pts, dtype=float)  # Sample times along trajectory
+    x_samp = _traj_x(t_samp, pars)  # Compute trajectory positions
+
+    # Check if trajectory stays within domain bounds
+    if np.any((x_samp < data.x.min()) | (x_samp > data.x.max())):
+        return 0.0  # Return zero if trajectory goes out of bounds
+
+    # Compute sensitivity matrix using finite differences
+    J = _build_J_global_fd(p_hat, data, x_samp, t_samp, eps_fd) / np.sqrt(sigma2)
+    F = J.T @ J  # Fisher Information Matrix
+    return np.linalg.det(F)  # Return determinant
+
+def optimise_trajectory(p_hat, data, t_bounds, n_pts, sigma2, seed=2):
+    # Optimize trajectory parameters to maximize det(FIM)
+
+    # Define parameter bounds for trajectory optimization
+    a2_lo, a2_hi = -1e-3, 1e-3  # Quadratic coefficient bounds
+    a1_lo, a1_hi = -1e-1, 1e-1  # Linear coefficient bounds
+    a0_lo, a0_hi = data.x.min(), data.x.max()  # Constant coefficient bounds
+    A_lo, A_hi = 0.0, 5.0  # Oscillation amplitude bounds
+    omg_lo, omg_hi = 0.01, 0.5  # Oscillation frequency bounds
+    phi_lo, phi_hi = 0.0, 2 * np.pi  # Phase shift bounds
+
+    bounds = [(a2_lo, a2_hi), (a1_lo, a1_hi), (a0_lo, a0_hi),
+              (A_lo, A_hi), (omg_lo, omg_hi), (phi_lo, phi_hi)]
+
+    def _neg_det(pars):
+        # Negative determinant for minimization
+        return -_fim_of_traj(pars, p_hat, data, t_bounds[0], t_bounds[1], n_pts, sigma2)
+
+    # Use differential evolution for global optimization
+    res = scipy.optimize.differential_evolution(_neg_det, bounds,
+                                                strategy="best1bin",
+                                                popsize=20, maxiter=120,
+                                                polish=True, seed=seed)
+    return res.x, -res.fun  # Return optimal parameters and det(FIM)
