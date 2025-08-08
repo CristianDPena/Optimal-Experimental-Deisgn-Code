@@ -22,14 +22,16 @@ from DoptimalOED import _candidate_grid, _greedy_d_optimal, _traj_x, optimise_tr
 #total diagnositics, Comparison of random vs grid vs trajectory det(FIM), Comparison of random vs grid vs trajectory inverse, plots
 from ErrorAnalysisPlotting import run_complete_oed_validation, compare_oed_vs_random, validate_oed_designs, plot_validation_results
 
+#data generation
+from syntheticdatageneration import gen_continuous_oscillating_data
+
 # ===================================================================
 # SECTION 10: MAIN EXECUTION
 # ===================================================================
 
 if __name__ == "__main__":
     # Set random seeds for reproducibility
-    rngOED_seed = noise_seed = 582
-    from syntheticdatageneration import gen_continuous_oscillating_data
+    rngOED_seed = noise_seed = 1
 
     # ---------------------------------------------------------------
     # Synthetic Data Generation
@@ -63,7 +65,7 @@ if __name__ == "__main__":
 
     # Generate synthetic observations with noise
     
-    noise_level = 0.01
+    noise_level = 0.1
     f_true = forward_solve(p_true, x, t, u0)  # True solution
     y_obs = apply_H(f_true, precompute_obs_weights(x, t, x_obs, t_obs))  # True observations
     noise = noise_level * np.std(y_obs)  # Noise level
@@ -87,8 +89,8 @@ if __name__ == "__main__":
         t_obs=t_obs,
         y_obs=y_obs,
         sigma2=sigma2,
-        prior=(0.11, 2.9),  # Prior means
-        prior_std=(1, 1)  # Prior standard deviations
+        prior=(0, 0),  # Prior means
+        prior_std=(1, 5)  # Prior standard deviations
     )
 
     # ---------------------------------------------------------------
@@ -146,9 +148,27 @@ if __name__ == "__main__":
     d0_opt = np.exp(p_opt[0])  # Recovered d_0
     alpha_opt = p_opt[1]  # Recovered alpha
 
-    print("True d0 =", true_d0, "  alpha =", p_true[1])
-    print(f"Recovered d0 = {d0_opt:.6g}   alpha = {alpha_opt:.6g}")
+    from inversesolver import linear_gaussian_posterior, InverseData
 
+    # --- Bayesian linearized posterior around MAP ---
+    p_map = p_opt  # center at MAP
+    m_post, C_post, J_obs, r_obs = linear_gaussian_posterior(p_map, data, use_fd=True)
+
+    # Report in original parameterization (d0 = exp(theta0))
+    post_mean_d0  = np.exp(m_post[0])
+    post_std_d0   = np.exp(m_post[0]) * np.sqrt(C_post[0,0])  # delta-method approx
+    post_mean_a   = m_post[1]
+    post_std_a    = np.sqrt(C_post[1,1])
+
+    print("\nBayesian Inversion:")
+    print("True d0 =", true_d0)
+    print(f"95% CI d0 ≈ {np.exp(m_post[0]-1.96*np.sqrt(C_post[0,0])):.4g} "
+        f"to {np.exp(m_post[0]+1.96*np.sqrt(C_post[0,0])):.4g}")
+    print(f"True alpha =", p_true[1])
+    print(f"95% CI alpha ≈ {m_post[1]-1.96*np.sqrt(C_post[1,1]):.4g} "
+        f"to {m_post[1]+1.96*np.sqrt(C_post[1,1]):.4g}")
+
+'''
     # ---------------------------------------------------------------
     # D-Optimal Experimental Design: Grid-Based Selection
     # ---------------------------------------------------------------
@@ -189,3 +209,4 @@ validation_results = validate_oed_designs(data, cost_and_grad, p_hat, bounds, x,
                                           comparison_results['J_all'], true_d0, p_true, d0_opt, alpha_opt, K_extra)
 plot_validation_results(x, t, f_true, p_true, p_hat, data.x_obs, data.t_obs, 
                         validation_results['grid_results']['x_new'], validation_results['grid_results']['t_new'], x_path, t_path, u0)
+'''

@@ -16,6 +16,9 @@ from bilinearinterpolation import precompute_obs_weights, apply_H
 #build source term from observation residuals, solve lambda, solve gradient
 from adjointgradient import build_injection, adjoint_solve, compute_gradient_adjoint
 
+#J via FD at observed time
+from DoptimalOED import build_J_obs_fd
+
 # ===================================================================
 # SECTION 6: PARAMETER TRANSFORMATION UTILITIES
 # ===================================================================
@@ -78,3 +81,36 @@ def J_and_grad(p, data):
     grad = compute_gradient_adjoint(p, f, lam, data.x, data.t, data.prior, data.prior_std)
 
     return J_mis + J_pr, grad  # Return total objective and gradient
+
+# ===================================================================
+# SECTION 8: Bayesian Inversion
+# ===================================================================
+def linear_gaussian_posterior(p_c, data, use_fd=True, eps=1e-6):
+    
+    #Linearize y = F(p_c) + J (p - p_c) and return N(m_post, C_post).
+    # prior
+    m0 = np.asarray(data.prior, float)
+    C0 = np.diag(np.asarray(data.prior_std, float)**2)
+    C0inv = np.linalg.inv(C0)
+
+    # forward & residual
+    f_c = forward_solve(p_c, data.x, data.t, data.u0)
+    if data.obs_w is None:
+        data.obs_w = precompute_obs_weights(data.x, data.t, data.x_obs, data.t_obs)
+    y_c = apply_H(f_c, data.obs_w)
+    r = data.y_obs - y_c
+
+    # sensitivities
+    J = build_J_obs_fd(p_c, data, eps=eps)  # shape (K, npar)
+
+    # noise
+    Sigma_inv = np.diag(1.0 / data.sigma2)
+
+    # linear-Gaussian algebra
+    A = C0inv + J.T @ Sigma_inv @ J
+    C_post = np.linalg.inv(A)
+    y_prime = r + J @ p_c  # = y - F(p_c) + J p_c
+    b = J.T @ Sigma_inv @ y_prime + C0inv @ m0
+    m_post = C_post @ b
+
+    return m_post, C_post, J, r

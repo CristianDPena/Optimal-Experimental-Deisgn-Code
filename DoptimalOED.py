@@ -71,6 +71,20 @@ def _build_J_global_fd(p, data, x_cand, t_cand, eps=1e-6):
 
     return J
 
+def build_J_obs_fd(p, data, eps=1e-6):
+    #finite differences sensitivity of H x f wrt params at (x_obs,t_obs)
+    f_base = forward_solve(p, data.x, data.t, data.u0)
+    H_w_obs = precompute_obs_weights(data.x, data.t, data.x_obs, data.t_obs)
+    n_par = len(p)
+    J = np.empty((data.x_obs.size, n_par), dtype=float)
+    for j in range(n_par):
+        p_shift = p.copy()
+        p_shift[j] += eps
+        f_shift = forward_solve(p_shift, data.x, data.t, data.u0)
+        sens_field = (f_shift - f_base) / eps
+        J[:, j] = apply_H(sens_field, H_w_obs)
+    return J
+
 # ===================================================================
 # SECTION 9: GRID-BASED OPTIMAL EXPERIMENTAL DESIGN
 # ===================================================================
