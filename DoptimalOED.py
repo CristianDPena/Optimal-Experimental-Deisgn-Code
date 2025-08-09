@@ -1,11 +1,6 @@
 import numpy as np
 import scipy
-from scipy.sparse import diags
-from scipy.sparse.linalg import splu
-from scipy.optimize import minimize, Bounds
 from dataclasses import dataclass
-from typing import Tuple, List
-import matplotlib.pyplot as plt
 
 #forward solver
 from fplanck import forward_solve
@@ -104,7 +99,8 @@ def _greedy_d_optimal(p_hat, data, x_cand, t_cand, K_new, sigma2_new):
     n_par = J.shape[1]  # Number of parameters
     m_cand = J.shape[0]  # Number of candidate points
     sel = []  # Selected indices
-    FIM = np.zeros((n_par, n_par))  #initialize Fisher Information Matrix
+    C_prior = np.diag(np.asarray(data.prior_std, float)**2)
+    FIM = np.linalg.inv(C_prior)  # Bayesian information starts with prior
     remaining = list(range(m_cand))  # Remaining candidate indices
 
     # Greedy selection (pick point that maximizes det(FIM))
@@ -139,24 +135,25 @@ def _fim_of_traj(pars, p_hat, data, t_lo, t_hi, n_pts, sigma2, eps_fd=1e-6):
     t_samp = np.linspace(t_lo, t_hi, n_pts, dtype=float)  # Sample times along trajectory
     x_samp = _traj_x(t_samp, pars)  # Compute trajectory positions
 
-    # Check if trajectory stays within domain bounds
+    # check if trajectory stays within domain bounds
     if np.any((x_samp < data.x.min()) | (x_samp > data.x.max())):
         return 0.0  # Return zero if trajectory goes out of bounds
 
     # Compute sensitivity matrix using finite differences
     J = _build_J_global_fd(p_hat, data, x_samp, t_samp, eps_fd) / np.sqrt(sigma2)
-    F = J.T @ J  # Fisher Information Matrix
+    C_prior = np.diag(np.asarray(data.prior_std, float)**2)
+    F = np.linalg.inv(C_prior) + J.T @ J  # Bayesian Fisher info
     return np.linalg.det(F)  # Return determinant
 
 def optimise_trajectory(p_hat, data, t_bounds, n_pts, sigma2, seed=2):
     # Optimize trajectory parameters to maximize det(FIM)
 
-    # Define parameter bounds for trajectory optimization
+    # define parameter bounds for trajectory optimization
     a2_lo, a2_hi = -1e-3, 1e-3  # Quadratic coefficient bounds
     a1_lo, a1_hi = -1e-1, 1e-1  # Linear coefficient bounds
     a0_lo, a0_hi = data.x.min(), data.x.max()  # Constant coefficient bounds
-    A_lo, A_hi = 0.0, 5.0  # Oscillation amplitude bounds
-    omg_lo, omg_hi = 0.01, 0.5  # Oscillation frequency bounds
+    A_lo, A_hi = 0.0, 5.0  # oscillation amplitude bounds
+    omg_lo, omg_hi = 0.01, 0.5  # oscillation frequency bounds
     phi_lo, phi_hi = 0.0, 2 * np.pi  # Phase shift bounds
 
     bounds = [(a2_lo, a2_hi), (a1_lo, a1_hi), (a0_lo, a0_hi),

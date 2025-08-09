@@ -1,11 +1,6 @@
 import numpy as np
-import scipy
-from scipy.sparse import diags
-from scipy.sparse.linalg import splu
-from scipy.optimize import minimize, Bounds
 from dataclasses import dataclass
 from typing import Tuple, List
-import matplotlib.pyplot as plt
 
 #forward solver
 from fplanck import forward_solve
@@ -64,7 +59,7 @@ def J_and_grad(p, data):
 
     # Compute data misfit
     y_pred = apply_H(f, data.obs_w)  # Predicted observations
-    res = y_pred - data.y_obs  # Residuals
+    res = y_pred - data.y_obs  #
     J_mis = 0.5 * np.sum(res ** 2 / data.sigma2)  # Data misfit term
 
     # Compute prior penalty
@@ -87,7 +82,7 @@ def J_and_grad(p, data):
 # ===================================================================
 def linear_gaussian_posterior(p_c, data, use_fd=True, eps=1e-6):
     
-    #Linearize y = F(p_c) + J (p - p_c) and return N(m_post, C_post).
+    #Linearize y = F(p_c) + J (p - p_c) and return N(m_post, C_post) where  p_c = center parameters (use current posterior mean)
     # prior
     m0 = np.asarray(data.prior, float)
     C0 = np.diag(np.asarray(data.prior_std, float)**2)
@@ -114,3 +109,34 @@ def linear_gaussian_posterior(p_c, data, use_fd=True, eps=1e-6):
     m_post = C_post @ b
 
     return m_post, C_post, J, r
+
+#linearized Bayes driver and sequential update 
+
+def laplace_bayes_solve(data, tol=1e-8, max_iter=100, eps=1e-6, verbose=True):
+    import numpy as np
+    p_c = np.asarray(data.prior, float)
+    hist = []
+    for k in range(max_iter):
+        m_post, C_post, J, r = linear_gaussian_posterior(p_c, data, eps=eps)
+        step = np.linalg.norm(m_post - p_c)
+        hist.append((p_c.copy(), m_post.copy(), step))
+        if verbose:
+            print(f"[{k:02d}]  Step Size={step:.3e}   mean: d0={np.exp(m_post[0]):.6g}  alpha={m_post[1]:.6g}")
+        p_c = m_post
+        if step < tol:
+            break
+    return m_post, C_post, hist
+
+
+def sequential_update(m_prior, C_prior, J_new, yprime_new, sigma2_new):
+    #Bayesian information update for an extra batch of points using
+    #the same linearization center as J_new and yprime_new were built at
+    
+    import numpy as np
+    Sinv = np.diag(1.0 / np.asarray(sigma2_new, float))
+    Cinv = np.linalg.inv(C_prior)
+    A = Cinv + J_new.T @ Sinv @ J_new
+    C_post = np.linalg.inv(A)
+    b = Cinv @ m_prior + J_new.T @ Sinv @ yprime_new
+    m_post = C_post @ b
+    return m_post, C_post
