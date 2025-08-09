@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
-from utils import remove_duplicates
-from utils import solve_lu
+from InitialFPsolver.utils import remove_duplicates
+from InitialFPsolver.utils import solve_lu
 import time
 
 day = 24*60*60 #seconds
