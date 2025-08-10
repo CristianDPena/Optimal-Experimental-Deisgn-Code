@@ -158,7 +158,7 @@ def validate_oed_designs(
     }
 
 def plot_validation_results(x, t, f_true, p_true, p_hat, x_obs, t_obs, 
-                           x_new, t_new, x_path, t_path, u0):
+                           x_path, t_path, u0): #removed x_new, t_new, from inputs
     # Plot diffusion coefficient comparison
     D_true = D_param(x, p_true)  # tue diffusion coefficient
     D_est = D_param(x, p_hat)  # estimated diffusion coefficient
@@ -206,7 +206,7 @@ def plot_validation_results(x, t, f_true, p_true, p_hat, x_obs, t_obs,
     # Plot measurement locations
     plt.figure()
     plt.scatter(t_obs, x_obs, s=10, label="Experimental points")  # Original observations
-    plt.scatter(t_new, x_new, s=10, color="orange", label="D-optimal grid points")  # Grid OED points
+    #plt.scatter(t_new, x_new, s=10, color="orange", label="D-optimal grid points")  # Grid OED points
     plt.scatter(t_path, x_path, s=10, color="red", label="D-optimal Trajectory Points")  # Trajectory OED points
     plt.legend(frameon=False) 
     plt.xlabel("t") 
