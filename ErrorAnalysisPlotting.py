@@ -100,7 +100,7 @@ def validate_oed_designs(
         # y' = (y_obs - F(p_c)@new) + J_new p_c
         yprime_new = (y_obs_new - y_c_new) + J_new @ p_c
 
-        return sequential_update(m_post, C_post, J_new, yprime_new, sigma2_new=2_new)
+        return sequential_update(m_post, C_post, J_new, yprime_new, sigma2_new=sigma2_new)
 
     # baseline CI widths (before adding new data)
     w_d0_b, w_a_b = _ci_widths(m_post, C_post)
