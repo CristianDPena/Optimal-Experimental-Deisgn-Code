@@ -1,0 +1,24 @@
+# Conda environment file to use TudatPy.
+#
+# This environment uses the tudat-team conda channel to install tudatpy.  The
+# version pins below follow the official TudatPy installation instructions to
+# ensure a compatible set of dependencies.  See the installation guide for
+# more details: https://docs.tudat.space/en/latest/getting-started/installation.html
+
+name: tudat-space
+channels:
+  - conda-forge
+  - tudat-team
+dependencies:
+  # core tudatpy package
+  - tudatpy=0.9
+  # numpy must be <2.0 for tudatpy v0.9
+  - numpy<2.0
+  # optional: standard scientific stack
+  - matplotlib
+  - scipy
+  - pandas
+  # optional: jupyter support if you plan to use notebooks
+  - ipython
+  - ipykernel
+  - jupyter
