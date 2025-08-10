@@ -153,16 +153,21 @@ K_extra = 50  # Number of additional measurements
 # ---------------------------------------------------------------
 # D-Optimal Experimefntal Design: Trajectory-Based Selection
 # ---------------------------------------------------------------
-t_lo_hi = (t.min(), t.max())  # Time bounds for trajectory
-n_track = K_extra  # Number of points along trajectory
+# ----- D-Optimal Experimental Design: Trajectory-Based -----
+t_lo_hi = (t.min(), t.max())
+n_track = K_extra
 
-# Optimize trajectory parameters
-traj_pars, det_traj = optimise_trajectory(p_hat, data,
-                                            t_lo_hi, n_track,
-                                            noise ** 2)
+# (A) pick/optimize Keplerian elements instead of sine-on-parabola params
+# Option 1: hardcode to test the pipe first
+keplerian0 = np.array([1.0e8, 0.2, np.deg2rad(10.0), 0.0, 0.0, 0.0])
 
-# Generate trajectory points
-t_path = np.linspace(*t_lo_hi, n_track)  # Time points along trajectory
-x_path = _traj_x(t_path, traj_pars)  # Spatial positions along trajectory
+# Option 2 (later): map your aj_pars from optimise_trajectory(...) to keplerian0 here
+# aj_pars, det_traj = optimise_trajectory(p_hat, d0_bounds, t_lo_hi, n_track, noise)
+# keplerian0 = map_legacy_params_to_keplerian(aj_pars)
 
-plot_validation_results(x, t, f_true, p_true, p_hat, data.x_obs, data.t_obs, x_path, t_path, u0)
+# (B) generate trajectory points via Tudat
+try:
+    from trajectory import traj_from_tudat
+    t_path, path = traj_from_tudat(keplerian0, t_lo_hi, n_track)
+except Exception as e:
+    raise RuntimeError(f"Tudat path generation failed: {e}")
