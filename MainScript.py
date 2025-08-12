@@ -28,7 +28,7 @@ from inversesolver import laplace_bayes_solve
 # ===================================================================
 
 if __name__ == "__main__":
-    rngOED_seed = noise_seed = 2
+    rngOED_seed = noise_seed = 2421
 
     T = 200  # Total time duration
     env_ctrl = [(0.0, 21.0), (T / 2, 11.0), (T, 16.0)]  # Environment control points
@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     # Generate synthetic observation data
     t_obs, x_obs = gen_continuous_oscillating_data(
-        n_points=50,
+        n_points=100,
         total_time=T,
         env_ctrl=env_ctrl,
         amp_ctrl=amp_ctrl,
@@ -51,12 +51,10 @@ if __name__ == "__main__":
 
     # Define initial condition and true parameters
     u0 = np.sin(np.pi * (x - x[0]) / (x[-1] - x[0]))  # Initial condition
-    true_d0 = 0.01  # True diffusion coefficient
-    p_true = (np.log(true_d0), 3)  # True parameters (log(d_0), alpha)
+    p_true_reg = (0.075, 3, 0.05, 4)  # True parameters
+    p_true = tuple(np.log(p_true_reg))
 
-    # generate synthetic observations with noise
-
-    noise_level = 0.1
+    noise_level = 0.05
     f_true = forward_solve(p_true, x, t, u0)  # True solution
     y_obs = apply_H(f_true, precompute_obs_weights(x, t, x_obs, t_obs))  # True observations
     noise = noise_level * np.std(y_obs)  # Noise level
@@ -80,8 +78,8 @@ if __name__ == "__main__":
         t_obs=t_obs,
         y_obs=y_obs,
         sigma2=sigma2,
-        prior=(0.1, 3),  # Prior means
-        prior_std=(0.5, 2)  # Prior standard deviations
+        prior=np.log((0.13, 2.9, 0.02, 3.75)),  # Prior means
+        prior_std=(0.5, 2, 0.5, 2)  # Prior standard deviations
     )
 
     # ---------------------------------------------------------------
@@ -122,12 +120,16 @@ if __name__ == "__main__":
 
 
 #Bayesian solve via Laplace iterations
-m_post, C_post, hist = laplace_bayes_solve(data, tol=1e-8, max_iter=1000, eps=1e-6, verbose=True)
+m_post, C_post, hist = laplace_bayes_solve(data, tol=1e-8, max_iter=100, eps=1e-6, verbose=True)
 
-print("\nBayesian posterior (Laplace):")
-#print("m_post =", m_post, "\nC_post=\n", C_post)
+print(f"True d0   = {p_true_reg[0]:.4g}")
 print(f"95% CI d0   = {np.exp(m_post[0]-1.96*np.sqrt(C_post[0,0])):.4g} to {np.exp(m_post[0]+1.96*np.sqrt(C_post[0,0])):.4g}")
-print(f"95% CI alpha = {m_post[1]-1.96*np.sqrt(C_post[1,1]):.4g} to {m_post[1]+1.96*np.sqrt(C_post[1,1]):.4g}")
+print(f"True alpha = {p_true_reg[1]:.4g}")
+print(f"95% CI alpha = {np.exp(m_post[1]-1.96*np.sqrt(C_post[1,1])):.4g} to {np.exp(m_post[1]+1.96*np.sqrt(C_post[1,1])):.4g}")
+print(f"True c0   = {p_true_reg[2]:.4g}")
+print(f"95% CI c0   = {np.exp(m_post[2]-1.96*np.sqrt(C_post[2,2])):.4g} to {np.exp(m_post[2]+1.96*np.sqrt(C_post[2,2])):.4g}")
+print(f"True beta   = {p_true_reg[3]:.4g}")
+print(f"95% CI beta = {np.exp(m_post[3]-1.96*np.sqrt(C_post[3,3])):.4g} to {np.exp(m_post[3]+1.96*np.sqrt(C_post[3,3])):.4g}")
 
 # use posterior mean for design center
 p_hat = m_post.copy()
@@ -137,6 +139,10 @@ post_mean_d0  = np.exp(m_post[0])
 post_std_d0   = np.exp(m_post[0]) * np.sqrt(C_post[0,0])  # delta-method approx
 post_mean_a   = m_post[1]
 post_std_a    = np.sqrt(C_post[1,1])
+post_mean_c0  = np.exp(m_post[2])
+post_std_c0   = np.exp(m_post[2]) * np.sqrt(C_post[2,2])  # delta-method approx
+post_mean_b   = m_post[3]
+post_std_b    = np.sqrt(C_post[3,3])
 
 # ---------------------------------------------------------------
 # D-Optimal Experimental Design: Grid-Based Selection

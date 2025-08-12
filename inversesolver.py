@@ -27,7 +27,7 @@ class StepMonitor:
         # Print optimization progress
         grad_norm = np.linalg.norm(g)  # Gradient norm
         print(f"[{self.k:02d}]  J = {J:10.4e}   gradient = {grad_norm:9.2e}   "
-              f"d0 = {np.exp(p[0]):.4g}   alpha = {p[1]:.4g}")
+              f"d0 = {np.exp(p[0]):.4g}   alpha = {np.exp(p[1]):.4g}    c0 = {np.exp(p[2]):.4g}   beta = {np.exp(p[3]):.4g}")
         self.k += 1  # Increment counter
 
 # ===================================================================
@@ -65,7 +65,9 @@ def J_and_grad(p, data):
     # Compute prior penalty
     J_pr = 0.5 * (
             (p[0] - data.prior[0]) ** 2 / data.prior_std[0] ** 2 +  # theta_0 prior
-            (p[1] - data.prior[1]) ** 2 / data.prior_std[1] ** 2  # alpha prior
+            (p[1] - data.prior[1]) ** 2 / data.prior_std[1] ** 2 +  # alpha prior
+            (p[2] - data.prior[2]) ** 2 / data.prior_std[2] ** 2 +  # C0 prior
+            (p[3] - data.prior[3]) ** 2 / data.prior_std[3] ** 2  # beta prior
     )
 
     # Solve adjoint problem
@@ -75,7 +77,7 @@ def J_and_grad(p, data):
     # Compute gradient
     grad = compute_gradient_adjoint(p, f, lam, data.x, data.t, data.prior, data.prior_std)
 
-    return J_mis + J_pr, grad  # Return total objective and gradient
+    return J_mis+J_pr, grad  # Return total objective and gradient
 
 # ===================================================================
 # SECTION 8: Bayesian Inversion
@@ -85,8 +87,8 @@ def linear_gaussian_posterior(p_c, data, use_fd=True, eps=1e-6):
     #Linearize y = F(p_c) + J (p - p_c) and return N(m_post, C_post) where  p_c = center parameters (use current posterior mean)
     # prior
     m0 = np.asarray(data.prior, float)
-    C0 = np.diag(np.asarray(data.prior_std, float)**2)
-    C0inv = np.linalg.inv(C0)
+    co0 = np.diag(np.asarray(data.prior_std, float)**2)
+    co0inv = np.linalg.inv(co0)
 
     # forward & residual
     f_c = forward_solve(p_c, data.x, data.t, data.u0)
@@ -102,10 +104,10 @@ def linear_gaussian_posterior(p_c, data, use_fd=True, eps=1e-6):
     Sigma_inv = np.diag(1.0 / data.sigma2)
 
     # linear-Gaussian algebra
-    A = C0inv + J.T @ Sigma_inv @ J
+    A = co0inv + J.T @ Sigma_inv @ J
     C_post = np.linalg.inv(A)
     y_prime = r + J @ p_c  # = y - F(p_c) + J p_c
-    b = J.T @ Sigma_inv @ y_prime + C0inv @ m0
+    b = J.T @ Sigma_inv @ y_prime + co0inv @ m0
     m_post = C_post @ b
 
     return m_post, C_post, J, r
@@ -113,18 +115,27 @@ def linear_gaussian_posterior(p_c, data, use_fd=True, eps=1e-6):
 #linearized Bayes driver and sequential update 
 
 def laplace_bayes_solve(data, tol=1e-8, max_iter=100, eps=1e-6, verbose=True):
-    import numpy as np
     p_c = np.asarray(data.prior, float)
     hist = []
     for k in range(max_iter):
         m_post, C_post, J, r = linear_gaussian_posterior(p_c, data, eps=eps)
-        step = np.linalg.norm(m_post - p_c)
-        hist.append((p_c.copy(), m_post.copy(), step))
+
+        step_vec  = m_post - p_c
+        step_norm = np.linalg.norm(step_vec)
+
+        hist.append((p_c.copy(), m_post.copy(), step_norm))
         if verbose:
-            print(f"[{k:02d}]  Step Size={step:.3e}   mean: d0={np.exp(m_post[0]):.6g}  alpha={m_post[1]:.6g}")
-        p_c = m_post
-        if step < tol:
+            print(f"[{k:02d}]  Step Size={step_norm:.3e}   "
+                  f"mean: d0={np.exp(m_post[0]):.6g}  alpha={np.exp(m_post[1]):.6g}  "
+                  f"c0={np.exp(m_post[2]):.6g}  beta={np.exp(m_post[3]):.6g}")
+
+        # simple damping to avoid blow-ups
+        eta = min(1.0, 1.0 / (1.0 + step_norm))
+        p_c = p_c + eta * step_vec
+
+        if step_norm < tol:
             break
+
     return m_post, C_post, hist
 
 

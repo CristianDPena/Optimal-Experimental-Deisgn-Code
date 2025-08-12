@@ -1,13 +1,9 @@
 import numpy as np
 import scipy
-from scipy.sparse import diags
 from scipy.sparse.linalg import splu
-from scipy.optimize import minimize, Bounds
-from dataclasses import dataclass
-from typing import Tuple, List
-import matplotlib.pyplot as plt
 
-from fplanck import D_param, D_partials, build_L_matrix
+
+from fplanck import D_param, C_param, C_partials, D_partials, build_L_matrix
 
 # ===================================================================
 # SECTION 4: ADJOINT PROBLEM SETUP AND SOLVER
@@ -35,7 +31,7 @@ def adjoint_solve(p, f, inj, x, t):
     dt = t[1] - t[0]
     
     # Build adjoint operator L^T
-    L = build_L_matrix(x, D_param(x, p))
+    L = build_L_matrix(x, D_param(x, p), C_param(x, p))
     I = scipy.sparse.eye(N, format='csc')
     A_adj = I - dt * L.T
     LU_adj = splu(A_adj.tocsc())
@@ -52,27 +48,37 @@ def adjoint_solve(p, f, inj, x, t):
 # ===================================================================
 # SECTION 5: GRADIENT COMPUTATION VIA ADJOINT METHOD
 # ===================================================================
-def compute_gradient_adjoint(p, f, lam, x, t, prior, prior_std, add_prior=True):
-    theta0, alpha = p
-    dD_dd0log, dD_dalpha = D_partials(x, p)
+def compute_gradient_adjoint(p, f, lam, x, t, prior, prior_std, add_prior=False):
+    d0, alpha, C0, beta = p
+    dD_dd0, dD_dalpha = D_partials(x, p)
+    dC_dc0, dC_dbeta = C_partials(x, p)
+
 
     dx = x[1] - x[0]
     df_dx = np.gradient(f, x, axis=1)
 
-    grad0 = grad1 = 0.0     # Initialize gradient components
+    grad0 = grad1 = grad2 = grad3 = 0.0     # Initialize gradient components
 
     for n in range(f.shape[0]):     # Integrate over all time steps
         # Compute Q terms: div(dD/dp * grad(f))
-        Q0 = np.gradient(dD_dd0log * df_dx[n], x)  # ∂/∂x(∂D/∂theta0 (∂f/∂x))
+        Q0 = np.gradient(dD_dd0 * df_dx[n], x)  # ∂/∂x(∂D/∂theta0 (∂f/∂x))
         Q1 = np.gradient(dD_dalpha * df_dx[n], x)  # ∂/∂x(D/∂alpha) (∂f/∂x))
+        Q2 = -np.gradient(dC_dc0 * f[n], x)  # ∂/∂x(∂C/∂theta0 (f))
+        Q3 = -np.gradient(dC_dbeta * f[n], x)  # ∂/∂x(∂C/∂beta (f))
+
 
         # Integrate lambda * Q over space
         grad0 += np.sum(lam[n] * Q0) * dx  # integral lambda * Q_0 dx
         grad1 += np.sum(lam[n] * Q1) * dx  # integral lambda * Q_1 dx
+        grad2 += np.sum(lam[n] * Q2) * dx  # integral lambda * Q_2 dx
+        grad3 += np.sum(lam[n] * Q3) * dx  # integral lambda * Q_3 dx
 
     # Add Gaussian prior contributions
     if add_prior:
-        grad0 += (theta0 - prior[0]) / prior_std[0] ** 2  # Prior gradient for theta_0
+        grad0 += (d0 - prior[0]) / prior_std[0] ** 2  # Prior gradient for theta_0
         grad1 += (alpha - prior[1]) / prior_std[1] ** 2  # Prior gradient for alpha
+        grad2 += (C0 - prior[2]) / prior_std[2] ** 2  # Prior gradient for C0
+        grad3 += (beta - prior[3]) / prior_std[3] ** 2  # Prior gradient for beta
 
-    return np.array([grad0, grad1])
+
+    return np.array([grad0, grad1, grad2, grad3])

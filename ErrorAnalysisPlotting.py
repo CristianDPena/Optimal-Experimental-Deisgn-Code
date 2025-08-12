@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Import your existing modules
-from fplanck import D_param, forward_solve
+from fplanck import D_param, forward_solve, C_param
 from bilinearinterpolation import precompute_obs_weights, apply_H
 from inversesolver import sequential_update
 from DoptimalOED import _build_J_global_fd
@@ -169,6 +169,19 @@ def plot_validation_results(x, t, f_true, p_true, p_hat, x_obs, t_obs,
     plt.xlabel('L')  # x-axis label
     plt.ylabel('D(L)')  # y-axis label
     plt.title('True vs Recovered Diffusion Coefficient')  # Plot title
+    plt.legend()  # Show legend
+    plt.grid(True)  # Show grid
+
+    # Plot drift coefficient comparison
+    C_true = C_param(x, p_true)  # true drift coefficient
+    C_est = C_param(x, p_hat)  # estimated drift coefficient
+
+    plt.figure()
+    plt.plot(x, C_true, label='True C(L)')  # Plot true C(L)
+    plt.plot(x, C_est, '--', label='Recovered C(L)')  # Plot estimated C(L)
+    plt.xlabel('L')  # x-axis label
+    plt.ylabel('C(L)')  # y-axis label
+    plt.title('True vs Recovered Drift Coefficient')  # Plot title
     plt.legend()  # Show legend
     plt.grid(True)  # Show grid
 
