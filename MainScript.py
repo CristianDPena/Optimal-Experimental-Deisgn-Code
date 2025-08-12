@@ -64,12 +64,8 @@ if __name__ == "__main__":
     H_w = precompute_obs_weights(x, t, x_obs, t_obs)  # Observation weights
     y_obs += rng.normal(scale=noise, size=y_obs.size)  # Add noise
 
-    # Cluster nearby observations for noise variance estimation
-    tol = 1e-3  # Clustering tolerance
-    coords = np.column_stack((x_obs, t_obs))  # Coordinate matrix
-    labels = scipy.cluster.vq.kmeans2(coords, coords, minit='matrix', thresh=tol)[1]  # Cluster labels
-    cluster_sizes = np.bincount(labels)  # Size of each cluster
-    sigma2 = np.array([noise ** 2 * cluster_sizes[lab] for lab in labels])  # Variance per observation
+    #homoscedastic noise
+    sigma2 = np.full(y_obs.shape, noise ** 2)  # Variance per observation
 
     # data container
     data = InverseData(
