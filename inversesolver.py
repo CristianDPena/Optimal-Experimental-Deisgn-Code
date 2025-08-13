@@ -60,8 +60,12 @@ def J_and_grad(p, data):
     # Compute data misfit
     y_pred = apply_H(f, data.obs_w)  # Predicted observations
     res = y_pred - data.y_obs  #
-    J_mis = 0.5 * np.sum(res ** 2 / data.sigma2)  # Data misfit term
+    #compute profiled weight:
+    S = (res @ res)
+    N = res.size
+    w = N / max(S, 1e-20)               # = 1 / sigma2_hat
 
+    J_mis = 0.5 * N * np.log(max(S / N, 1e-20))
     # Compute prior penalty
     J_pr = 0.5 * (
             (p[0] - data.prior[0]) ** 2 / data.prior_std[0] ** 2 +  # theta_0 prior
@@ -69,7 +73,7 @@ def J_and_grad(p, data):
     )
 
     # Solve adjoint problem
-    inj = build_injection(data.obs_w, res, data.sigma2, len(data.t), len(data.x), data.dt)
+    inj = build_injection(data.obs_w, res, data.sigma2, len(data.t), len(data.x), data.dt, w=w)
     lam = adjoint_solve(p, f, inj, data.x, data.t)
 
     # Compute gradient
@@ -99,7 +103,11 @@ def linear_gaussian_posterior(p_c, data, use_fd=True, eps=1e-6):
     J = build_J_obs_fd(p_c, data, eps=eps)  # shape (K, npar)
 
     # noise
-    Sigma_inv = np.diag(1.0 / data.sigma2)
+    # profiled homoscedastic noise: Sigma = sigma2_hat * I
+    S = float(r @ r)
+    N = r.size
+    sigma2_hat = max(S, 1e-20) / N
+    Sigma_inv = (1.0 / sigma2_hat) * np.eye(N)
 
     # linear-Gaussian algebra
     A = C0inv + J.T @ Sigma_inv @ J

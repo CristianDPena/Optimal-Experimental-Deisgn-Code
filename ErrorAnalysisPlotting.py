@@ -116,7 +116,7 @@ def validate_oed_designs(
     w_d0_t, w_a_t = _ci_widths(m_traj, C_traj)
 
     # 3) 99th-percentile random design (rebuild the same sets)
-    idx_99   = np.argsort(det_rand)[int(0.5 * n_random) - 1]
+    idx_99   = np.argsort(det_rand)[int(0.99 * n_random) - 1]
     rand_sets = [rng.choice(J_all.shape[0], size=K_extra, replace=False) for _ in range(n_random)]
     rand_sel  = rand_sets[idx_99]
     x_rand, t_rand = x_cand[rand_sel], t_cand[rand_sel]

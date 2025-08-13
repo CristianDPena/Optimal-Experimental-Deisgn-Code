@@ -13,19 +13,17 @@ from fplanck import D_param, D_partials, build_L_matrix
 # SECTION 4: ADJOINT PROBLEM SETUP AND SOLVER
 # ===================================================================
 
-def build_injection(obs_w, res, sigma2, M, N, dt):
+def build_injection(obs_w, res, sigma2, M, N, dt, w=None):
     # Build adjoint source term from observation residuals
     inj = np.zeros((M, N))  # Adjoint source matrix initlization
+    use_profile = (w is not None)
 
     for k, (j0, j1, wx0, wx1, n0, n1, wt0, wt1) in enumerate(obs_w):
-        r = res[k] / sigma2[k]  # residual r = (y_pred - y_obs)/sigma^2
-
-        # Distribute residual to surrounding grid points
-        inj[n0, j0] += wt0 * wx0 * r * dt  # Earlier time, left space
-        inj[n0, j1] += wt0 * wx1 * r * dt  # Earlier time, right space
-        inj[n1, j0] += wt1 * wx0 * r * dt  # Later time, left space
-        inj[n1, j1] += wt1 * wx1 * r * dt  # Later time, right space
-
+        r = (w * res[k]) if use_profile else (res[k] / sigma2[k])
+        inj[n0, j0] += wt0 * wx0 * r * dt
+        inj[n0, j1] += wt0 * wx1 * r * dt
+        inj[n1, j0] += wt1 * wx0 * r * dt
+        inj[n1, j1] += wt1 * wx1 * r * dt
     return inj
 
 

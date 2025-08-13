@@ -64,12 +64,7 @@ if __name__ == "__main__":
     H_w = precompute_obs_weights(x, t, x_obs, t_obs)  # Observation weights
     y_obs += rng.normal(scale=noise, size=y_obs.size)  # Add noise
 
-    # Cluster nearby observations for noise variance estimation
-    tol = 1e-3  # Clustering tolerance
-    coords = np.column_stack((x_obs, t_obs))  # Coordinate matrix
-    labels = scipy.cluster.vq.kmeans2(coords, coords, minit='matrix', thresh=tol)[1]  # Cluster labels
-    cluster_sizes = np.bincount(labels)  # Size of each cluster
-    sigma2 = np.array([noise ** 2 * cluster_sizes[lab] for lab in labels])  # Variance per observation
+    sigma2 = np.ones_like(y_obs)   #initialize
 
     # data container
     data = InverseData(
@@ -80,7 +75,7 @@ if __name__ == "__main__":
         t_obs=t_obs,
         y_obs=y_obs,
         sigma2=sigma2,
-        prior=(0, 0),  # Prior means
+        prior=(0.008, 2.7),  # Prior means
         prior_std=(1, 5)  # Prior standard deviations
     )
 
@@ -123,14 +118,25 @@ if __name__ == "__main__":
 
 #Bayesian solve via Laplace iterations
 m_post, C_post, hist = laplace_bayes_solve(data, tol=1e-9, max_iter=12, eps=1e-6, verbose=True)
+p_hat = m_post.copy()
+
+# compute sigma2_hat at the posterior mean (for OED and validation)
+f_c = forward_solve(p_hat, x, t, u0)
+y_c = apply_H(f_c, precompute_obs_weights(x, t, x_obs, t_obs))
+r = y_obs - y_c
+S = float(r @ r)
+Nobs = r.size
+sigma2_hat = S / Nobs
+noise_std_hat = np.sqrt(sigma2_hat)
 
 print("\nBayesian posterior (Laplace):")
 #print("m_post =", m_post, "\nC_post=\n", C_post)
 print(f"95% CI d0   = {np.exp(m_post[0]-1.96*np.sqrt(C_post[0,0])):.4g} to {np.exp(m_post[0]+1.96*np.sqrt(C_post[0,0])):.4g}")
 print(f"95% CI alpha = {m_post[1]-1.96*np.sqrt(C_post[1,1]):.4g} to {m_post[1]+1.96*np.sqrt(C_post[1,1]):.4g}")
 
-# use posterior mean for design center
-p_hat = m_post.copy()
+print("\nVariance Estimation:")
+print(f"True variance: {noise**2:.4g}")
+print(f"Estimated variance: {sigma2_hat:.4g}")
 
 # Report in original parameterization
 post_mean_d0  = np.exp(m_post[0])
@@ -152,7 +158,7 @@ x_cand, t_cand = _candidate_grid((x.min(), x.max()),
 p_hat = m_post.copy()
 sel_idx, det_fim = _greedy_d_optimal(p_hat, data,
                                         x_cand, t_cand,
-                                        K_extra, noise ** 2)
+                                        K_extra, sigma2_hat)
 
 # ---------------------------------------------------------------
 # D-Optimal Experimefntal Design: Trajectory-Based Selection
@@ -163,7 +169,7 @@ n_track = K_extra  # Number of points along trajectory
 # Optimize trajectory parameters
 traj_pars, det_traj = optimise_trajectory(p_hat, data,
                                             t_lo_hi, n_track,
-                                            noise ** 2)
+                                            sigma2_hat)
 
 # Generate trajectory points
 t_path = np.linspace(*t_lo_hi, n_track)  # Time points along trajectory
@@ -172,7 +178,7 @@ x_path = _traj_x(t_path, traj_pars)  # Spatial positions along trajectory
 
 n_random = 100  # Number of random design sets to sample
 comparison_results = compare_oed_vs_random(
-    data, p_hat, K_extra, x_cand, t_cand, det_fim, det_traj, noise
+    data, p_hat, K_extra, x_cand, t_cand, det_fim, det_traj, np.sqrt(sigma2_hat)
 )
 validation_results = validate_oed_designs(
     data,
@@ -182,7 +188,7 @@ validation_results = validate_oed_designs(
     x_cand, t_cand, sel_idx,
     x_path, t_path,
     f_true,
-    noise,                               # base noise std for new measurements
+    np.sqrt(sigma2_hat),                               # base noise std for new measurements
     comparison_results['det_rand'],
     comparison_results['J_all'],
     K_extra,
