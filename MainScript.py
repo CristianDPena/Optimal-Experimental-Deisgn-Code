@@ -28,7 +28,7 @@ from inversesolver import laplace_bayes_solve
 # ===================================================================
 
 if __name__ == "__main__":
-    rngOED_seed = noise_seed = 224
+    rngOED_seed = noise_seed = 2242
 
     T = 200  # Total time duration
     env_ctrl = [(0.0, 21.0), (T / 2, 11.0), (T, 16.0)]  # Environment control points
@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     # Generate synthetic observation data
     t_obs, x_obs = gen_continuous_oscillating_data(
-        n_points=50,
+        n_points=150,
         total_time=T,
         env_ctrl=env_ctrl,
         amp_ctrl=amp_ctrl,
@@ -144,7 +144,7 @@ post_std_d0   = np.exp(m_post[0]) * np.sqrt(C_post[0,0])  # delta-method approx
 post_mean_a   = m_post[1]
 post_std_a    = np.sqrt(C_post[1,1])
 
-K_extra = 50  # Number of additional measurements
+K_extra = 100  # Number of additional measurements
 n_track = K_extra  # Number of points along trajectory
 n_random = 100  # Number of random design sets to sample
 

@@ -147,7 +147,19 @@ def _greedy_optimal(p_hat, data, x_cand, t_cand, K_new, sigma2_new, optimality):
 # ===================================================================
 def _traj_x(t, pars):
     # Oscillating parabola trajectory: x(t) = (a_2*t^2 + a_1*t + a_0) + A*sin(omega*t + phi)
-    a2, a1, a0, A, omg, phi = pars  # Extract trajectory parameters
+    a2, a0  = pars  # Extract trajectory parameters
+    a1  = -a2*(t.max() + t.min())
+    #oscillation parameters
+    #amplitude
+    T = t.max() - t.min()  # Total time
+    amp_ctrl = [(0.0, 3), (T / 2, 0.5), (T, 1)]  #Amplitude control points
+    t_amp, A_amp = zip(*amp_ctrl) #unpack into 2 vectors
+    amp_a2, amp_a1, amp_a0 = np.polyfit(t_amp, A_amp, 2) #fit a quadratic curve using those points
+    A = amp_a2*t**2 + amp_a1*t + amp_a0 #evaluate the curve at each t
+    #other parameters
+    n_cycles = 10
+    omg = 2*np.pi * n_cycles/t.max()
+    phi = 0
     return a2 * t * t + a1 * t + a0 + A * np.sin(omg * t + phi)  # Compute trajectory
 
 def _fim_of_traj(pars, p_hat, data, t_lo, t_hi, n_pts, sigma2, optimality, eps_fd=1e-6):
@@ -157,7 +169,7 @@ def _fim_of_traj(pars, p_hat, data, t_lo, t_hi, n_pts, sigma2, optimality, eps_f
 
     # check if trajectory stays within domain bounds
     if np.any((x_samp < data.x.min()) | (x_samp > data.x.max())):
-        # D-opt: return very bad (0).  A-opt: return -inf (also very bad after sign flip).
+        # D-opt: return very bad (0).  A-opt: return -inf 
         return 0.0 if optimality == "D" else -np.inf
 
     # Compute sensitivity matrix using finite differences
@@ -178,14 +190,9 @@ def optimise_trajectory(p_hat, data, t_bounds, n_pts, sigma2, seed, optimality):
 
     # define parameter bounds for trajectory optimization
     a2_lo, a2_hi = -1e-3, 1e-3  # Quadratic coefficient bounds
-    a1_lo, a1_hi = -1e-1, 1e-1  # Linear coefficient bounds
     a0_lo, a0_hi = data.x.min(), data.x.max()  # Constant coefficient bounds
-    A_lo, A_hi = 0.0, 5.0  # oscillation amplitude bounds
-    omg_lo, omg_hi = 0.01, 0.5  # oscillation frequency bounds
-    phi_lo, phi_hi = 0.0, 2 * np.pi  # Phase shift bounds
 
-    bounds = [(a2_lo, a2_hi), (a1_lo, a1_hi), (a0_lo, a0_hi),
-              (A_lo, A_hi), (omg_lo, omg_hi), (phi_lo, phi_hi)]
+    bounds = [(a2_lo, a2_hi), (a0_lo, a0_hi)]
 
     def _neg_det(pars, optimality=optimality):
         # Negative determinant for minimization
@@ -194,6 +201,6 @@ def optimise_trajectory(p_hat, data, t_bounds, n_pts, sigma2, seed, optimality):
     # Use differential evolution for global optimization
     res = scipy.optimize.differential_evolution(_neg_det, bounds,
                                                 strategy="best1bin",
-                                                popsize=20, maxiter=120,
+                                                popsize=20, maxiter=1000,
                                                 polish=True, seed=seed)
     return res.x, -res.fun  # Return optimal parameters and det(FIM)

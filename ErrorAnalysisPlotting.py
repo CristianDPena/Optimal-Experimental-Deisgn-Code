@@ -30,11 +30,7 @@ def compare_oed_vs_random(data, p_c, K_extra, x_cand, t_cand,
 
     # Trajectory parameter bounds (same family as your optimized path)
     a2_lo, a2_hi = -1e-3, 1e-3
-    a1_lo, a1_hi = -1e-1, 1e-1
     a0_lo, a0_hi = x_min,  x_max
-    A_lo,  A_hi  = 0.0,    5.0
-    omg_lo,omg_hi= 0.01,   0.5
-    phi_lo,phi_hi= 0.0,    2*np.pi
 
     for i in range(n_random):
         #sample a path fully within [x_min, x_max]
@@ -42,11 +38,7 @@ def compare_oed_vs_random(data, p_c, K_extra, x_cand, t_cand,
         for _ in range(n_random):
             pars = np.array([
                 rng.uniform(a2_lo, a2_hi),
-                rng.uniform(a1_lo, a1_hi),
                 rng.uniform(a0_lo, a0_hi),
-                rng.uniform(A_lo,  A_hi ),
-                rng.uniform(omg_lo,omg_hi),
-                rng.uniform(phi_lo,phi_hi),
             ], float)
             t_path = np.linspace(t_lo, t_hi, n_path, dtype=float)
             x_path = _traj_x(t_path, pars)
