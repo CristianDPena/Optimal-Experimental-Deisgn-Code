@@ -12,7 +12,7 @@ from bilinearinterpolation import precompute_obs_weights, apply_H
 from inversesolver import InverseData, J_and_grad, StepMonitor
 
 #grid for grid-based OED, grid-based OED, trajectory model of experiment, trajectory optimizer
-from DoptimalOED import _candidate_grid, _greedy_d_optimal, _traj_x, optimise_trajectory
+from DoptimalOED import _candidate_grid, _greedy_optimal, _traj_x, optimise_trajectory
 
 #total diagnositics, Comparison of random vs grid vs trajectory det(FIM), Comparison of random vs grid vs trajectory inverse, plots
 from ErrorAnalysisPlotting import run_complete_oed_validation, compare_oed_vs_random, validate_oed_designs, plot_validation_results
@@ -28,7 +28,7 @@ from inversesolver import laplace_bayes_solve
 # ===================================================================
 
 if __name__ == "__main__":
-    rngOED_seed = noise_seed = 2
+    rngOED_seed = noise_seed = 224
 
     T = 200  # Total time duration
     env_ctrl = [(0.0, 21.0), (T / 2, 11.0), (T, 16.0)]  # Environment control points
@@ -117,7 +117,7 @@ if __name__ == "__main__":
 
 
 #Bayesian solve via Laplace iterations
-m_post, C_post, hist = laplace_bayes_solve(data, tol=1e-9, max_iter=12, eps=1e-6, verbose=True)
+m_post, C_post, hist = laplace_bayes_solve(data, tol=1e-7, max_iter=100, eps=1e-6, verbose=True)
 p_hat = m_post.copy()
 
 # compute sigma2_hat at the posterior mean (for OED and validation)
@@ -129,7 +129,7 @@ Nobs = r.size
 sigma2_hat = S / Nobs
 noise_std_hat = np.sqrt(sigma2_hat)
 
-print("\nBayesian posterior (Laplace):")
+print("\nBayesian posterior:")
 #print("m_post =", m_post, "\nC_post=\n", C_post)
 print(f"95% CI d0   = {np.exp(m_post[0]-1.96*np.sqrt(C_post[0,0])):.4g} to {np.exp(m_post[0]+1.96*np.sqrt(C_post[0,0])):.4g}")
 print(f"95% CI alpha = {m_post[1]-1.96*np.sqrt(C_post[1,1]):.4g} to {m_post[1]+1.96*np.sqrt(C_post[1,1]):.4g}")
@@ -144,56 +144,108 @@ post_std_d0   = np.exp(m_post[0]) * np.sqrt(C_post[0,0])  # delta-method approx
 post_mean_a   = m_post[1]
 post_std_a    = np.sqrt(C_post[1,1])
 
-# ---------------------------------------------------------------
-# D-Optimal Experimental Design: Grid-Based Selection
-# ---------------------------------------------------------------
 K_extra = 50  # Number of additional measurements
+n_track = K_extra  # Number of points along trajectory
+n_random = 100  # Number of random design sets to sample
+
+#Linspace time for trajectories
+t_lo_hi = (t.min(), t.max())  # Time bounds for trajectory
+t_path = np.linspace(*t_lo_hi, n_track)  # Time points along trajectory
+
 
 # Generate candidate measurement locations
 x_cand, t_cand = _candidate_grid((x.min(), x.max()),
                                     (t.min(), t.max()),
                                     n_x=100, n_t=100)
+p_hat = m_post.copy()
+# ---------------------------------------------------------------
+# D-Optimal Experimental Design: Grid-Based Selection
+# ---------------------------------------------------------------
+
 
 # Perform greedy D-optimal selection
-p_hat = m_post.copy()
-sel_idx, det_fim = _greedy_d_optimal(p_hat, data,
+sel_idx_D, det_fim = _greedy_optimal(p_hat, data,
                                         x_cand, t_cand,
-                                        K_extra, sigma2_hat)
+                                        K_extra, sigma2_hat, optimality="D")
 
 # ---------------------------------------------------------------
 # D-Optimal Experimefntal Design: Trajectory-Based Selection
 # ---------------------------------------------------------------
-t_lo_hi = (t.min(), t.max())  # Time bounds for trajectory
-n_track = K_extra  # Number of points along trajectory
 
 # Optimize trajectory parameters
-traj_pars, det_traj = optimise_trajectory(p_hat, data,
+traj_pars_D, det_traj_D = optimise_trajectory(p_hat, data,
                                             t_lo_hi, n_track,
-                                            sigma2_hat)
+                                            sigma2_hat, seed=rngOED_seed, optimality="D")
 
 # Generate trajectory points
-t_path = np.linspace(*t_lo_hi, n_track)  # Time points along trajectory
-x_path = _traj_x(t_path, traj_pars)  # Spatial positions along trajectory
+x_path_D = _traj_x(t_path, traj_pars_D)  # Spatial positions along trajectory
 
 
-n_random = 100  # Number of random design sets to sample
-comparison_results = compare_oed_vs_random(
-    data, p_hat, K_extra, x_cand, t_cand, det_fim, det_traj, np.sqrt(sigma2_hat)
+comparison_results_D = compare_oed_vs_random(
+    data, p_hat, K_extra, x_cand, t_cand, det_fim, det_traj_D, np.sqrt(sigma2_hat), n_random=n_random, rngOED_seed=rngOED_seed, optimality="D"
 )
-validation_results = validate_oed_designs(
+validation_results_D = validate_oed_designs(
     data,
     p_hat,           # p_c: use the posterior mean as center
     m_post, C_post,  # current posterior before adding new data
     x, t, u0,
-    x_cand, t_cand, sel_idx,
-    x_path, t_path,
+    x_cand, t_cand, sel_idx_D,
+    x_path_D, t_path,
     f_true,
     np.sqrt(sigma2_hat),                               # base noise std for new measurements
-    comparison_results['det_rand'],
-    comparison_results['J_all'],
-    K_extra,
-    n_random=1000,
-    rngOED_seed=rngOED_seed,
+    comparison_results_D['Fval_rand'],
+    comparison_results_D['J_all'],
+    K_extra=K_extra,
+    n_random=n_random,
+    rngOED_seed=rngOED_seed, rand_paths=comparison_results_D['rand_paths']
 )
+
+# ---------------------------------------------------------------
+# A-Optimal Experimental Design: Grid-Based Selection
+# ---------------------------------------------------------------
+
+
+# Perform greedy A-optimal selection
+sel_idx_A, trace_fim = _greedy_optimal(p_hat, data,
+                                        x_cand, t_cand,
+                                        K_extra, sigma2_hat, optimality="A")
+
+# ---------------------------------------------------------------
+# D-Optimal Experimefntal Design: Trajectory-Based Selection
+# ---------------------------------------------------------------
+
+# Optimize trajectory parameters
+traj_pars_A, trace_traj_A = optimise_trajectory(p_hat, data,
+                                            t_lo_hi, n_track,
+                                            sigma2_hat, seed=rngOED_seed, optimality="A")
+
+# Generate trajectory points
+x_path_A = _traj_x(t_path, traj_pars_A)  # Spatial positions along trajectory
+
+
+comparison_results_A = compare_oed_vs_random(
+    data, p_hat, K_extra, x_cand, t_cand, trace_fim, trace_traj_A, np.sqrt(sigma2_hat), n_random=n_random, rngOED_seed=rngOED_seed, optimality="A"
+)
+validation_results_A = validate_oed_designs(
+    data,
+    p_hat,           # p_c: use the posterior mean as center
+    m_post, C_post,  # current posterior before adding new data
+    x, t, u0,
+    x_cand, t_cand, sel_idx_A,
+    x_path_A, t_path,
+    f_true,
+    np.sqrt(sigma2_hat),                               # base noise std for new measurements
+    comparison_results_A['Fval_rand'],
+    comparison_results_A['J_all'],
+    K_extra,
+    n_random=n_random,
+    rngOED_seed=rngOED_seed, rand_paths=comparison_results_A['rand_paths']
+)
+
+
+# ---------------------------------------------------------------
+#Plotting
+# ---------------------------------------------------------------
 plot_validation_results(x, t, f_true, p_true, p_hat, data.x_obs, data.t_obs, 
-                    validation_results['grid_results']['x_new'], validation_results['grid_results']['t_new'], x_path, t_path, u0)
+                    validation_results_D['grid_results']['x_new'], validation_results_D['grid_results']['t_new'], x_path_D, t_path, u0)
+
