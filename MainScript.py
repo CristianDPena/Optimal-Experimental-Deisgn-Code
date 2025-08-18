@@ -1,9 +1,10 @@
 import numpy as np
 import scipy
 from dataclasses import dataclass
+import matplotlib.pyplot as plt
 
 #forward solver
-from fplanck import forward_solve
+from fplanck import forward_solve, D_param
 
 #bilinear weights, H matrix
 from bilinearinterpolation import precompute_obs_weights, apply_H
@@ -15,7 +16,7 @@ from inversesolver import InverseData, J_and_grad, StepMonitor
 from DoptimalOED import _candidate_grid, _greedy_optimal, _traj_x, optimise_trajectory
 
 #total diagnositics, Comparison of random vs grid vs trajectory det(FIM), Comparison of random vs grid vs trajectory inverse, plots
-from ErrorAnalysisPlotting import run_complete_oed_validation, compare_oed_vs_random, validate_oed_designs, plot_validation_results
+from ErrorAnalysisPlotting import run_complete_oed_validation, compare_oed_vs_random, validate_oed_designs, plot_validation_results, postpriorplot
 
 #data generation
 from syntheticdatageneration import gen_continuous_oscillating_data
@@ -28,23 +29,70 @@ from inversesolver import laplace_bayes_solve
 # ===================================================================
 
 if __name__ == "__main__":
-    rngOED_seed = noise_seed = 2242
+    rngOED_seed = noise_seed = 224232
 
-    T = 200  # Total time duration
-    env_ctrl = [(0.0, 21.0), (T / 2, 11.0), (T, 16.0)]  # Environment control points
-    amp_ctrl = [(0.0, 3), (T / 2, 0.5), (T, 1)]  #Amplitude control points
-    n_cycles = 10  # Nnumber of oscillation cycles
+    T = 200000  # Total time duration
+    env_ctrl = [(T/8, 15.0), (T/2,  10.0), (T,   16.0)]  # Environment control points
+    amp_ctrl = [(0.0,  0.15), (T/2,  0.025), (T,    0.0675)]  #Amplitude control points
+    n_cycles = 10.5  # Nnumber of oscillation cycles
+    n_points = 250
 
     # Generate synthetic observation data
     t_obs, x_obs = gen_continuous_oscillating_data(
-        n_points=150,
+        n_points=n_points,
         total_time=T,
         env_ctrl=env_ctrl,
         amp_ctrl=amp_ctrl,
         n_cycles=n_cycles
     )
 
-    N, M = 100, 100  # Grid dimensions (space, time)
+    def load_single_orbit_xt(filename):
+        """Load data, remove duplicates, sort, then
+        interpolate onto a uniform grid of length N."""
+        from InitialFPsolver.utils import remove_duplicates
+        # 1. Load raw data
+        xin, tin = np.loadtxt(filename,
+                            usecols=[1, 0],
+                            unpack=True,
+                            skiprows=1)
+
+        return xin, tin
+
+    x, t = load_single_orbit_xt("singleOrbit_t50_10MeV.txt")
+    x_obs = np.zeros_like(x)
+    t_obs = np.zeros_like(t)
+
+    mask  = (t > 2.42375e8) & (t < 2.42575e8)
+    t_obs = t[mask].copy()
+    x_obs = x[mask].copy()
+    t_norm = t_obs - 2.42375e8
+
+    """
+    fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+    axs[0].scatter(t_norm, x_obs, s=10)
+    axs[0].set_xlabel("t (time)")
+    axs[0].set_ylabel("L (L-shell )")
+    axs[0].set_ylim(9, 24)
+    axs[0].set_title("Experimental Data Locations")
+    axs[1].scatter(t_obs, x_obs, s=10)
+    axs[1].set_xlabel("t (time)")
+    axs[1].set_ylabel("L (L-shell)")
+    axs[1].set_ylim(9, 24)
+    axs[1].set_title("Synthetic Data Locations")
+    plt.show()
+    plt.scatter(t_norm, selected_x, s=10)
+    plt.xlabel("t (time)")
+    plt.ylabel("L (L-shell )")
+    plt.ylim(9, 24)
+    plt.scatter(t_obs, x_obs, s=10)
+    plt.xlabel("t (time)")
+    plt.ylabel("L (L-shell)")
+    plt.ylim(9, 24)
+    plt.show()
+    """
+
+
+    N, M = 100, 100000  # Grid dimensions (space, time)
     x_min = max(1e-6, x_obs.min() * 0.9)  # Minimum x with safety margin
     x = np.linspace(x_min, x_obs.max() * 1.1, N)  # Spatial grid
     t = np.linspace(t_obs.min(), t_obs.max(), M)  # Time grid
@@ -56,7 +104,7 @@ if __name__ == "__main__":
 
     # generate synthetic observations with noise
 
-    noise_level = 0.2
+    noise_level = 0.15  # Noise level
     f_true = forward_solve(p_true, x, t, u0)  # True solution
     y_obs = apply_H(f_true, precompute_obs_weights(x, t, x_obs, t_obs))  # True observations
     noise = noise_level * np.std(y_obs)  # Noise level
@@ -75,8 +123,8 @@ if __name__ == "__main__":
         t_obs=t_obs,
         y_obs=y_obs,
         sigma2=sigma2,
-        prior=(0.008, 2.7),  # Prior means
-        prior_std=(1, 5)  # Prior standard deviations
+        prior=(np.log(0.018), 2.7),  # Prior means
+        prior_std=(0.5, 2.5)  # Prior standard deviations
     )
 
     # ---------------------------------------------------------------
@@ -117,7 +165,7 @@ if __name__ == "__main__":
 
 
 #Bayesian solve via Laplace iterations
-m_post, C_post, hist = laplace_bayes_solve(data, tol=1e-7, max_iter=100, eps=1e-6, verbose=True)
+m_post, C_post, hist = laplace_bayes_solve(data, tol=1e-5, max_iter=20, eps=1e-5, verbose=True)
 p_hat = m_post.copy()
 
 # compute sigma2_hat at the posterior mean (for OED and validation)
@@ -138,15 +186,18 @@ print("\nVariance Estimation:")
 print(f"True variance: {noise**2:.4g}")
 print(f"Estimated variance: {sigma2_hat:.4g}")
 
+#_-------
+#optimal experimetal design
+
 # Report in original parameterization
 post_mean_d0  = np.exp(m_post[0])
 post_std_d0   = np.exp(m_post[0]) * np.sqrt(C_post[0,0])  # delta-method approx
 post_mean_a   = m_post[1]
 post_std_a    = np.sqrt(C_post[1,1])
 
-K_extra = 100  # Number of additional measurements
+K_extra = 250  # Number of additional measurements
 n_track = K_extra  # Number of points along trajectory
-n_random = 100  # Number of random design sets to sample
+n_random = 10  # Number of random design sets to sample
 
 #Linspace time for trajectories
 t_lo_hi = (t.min(), t.max())  # Time bounds for trajectory
@@ -246,6 +297,32 @@ validation_results_A = validate_oed_designs(
 # ---------------------------------------------------------------
 #Plotting
 # ---------------------------------------------------------------
+
+postpriorplot(data, m_post, C_post, validation_results_D['trajectory_results']['m'], validation_results_D['trajectory_results']['C'], validation_results_A['trajectory_results']['m'], validation_results_A['trajectory_results']['C'])
+
+# Plot diffusion coefficient comparison
+D_true = D_param(x, p_true)  # tue diffusion coefficient
+D_est = D_param(x, p_hat)  # estimated diffusion coefficient
+D_OEDA = D_param(x, validation_results_A['trajectory_results']['m'])  # estimated diffusion coefficient
+D_OEDD = D_param(x, validation_results_D['trajectory_results']['m'])  # estimated diffusion coefficient
+
+
+plt.figure()
+plt.plot(x, D_true, label='True D(L)')  # Plot true D(L)
+plt.plot(x, D_est, '--', label='Initial Recovered D(L)')  # Plot estimated D(L)
+plt.plot(x, D_OEDD, '-.', label='OED Recovered D(L) (D-optimality)')  # Plot estimated D(L)
+plt.plot(x, D_OEDA, ':', label='OED Recovered D(L) (A-optimality)')  # Plot estimated D(L)
+plt.xlabel('L')  # x-axis label
+plt.ylabel('D(L)')  # y-axis label
+plt.title('True vs Recovered Diffusion Coefficients')  # Plot title
+plt.legend()  # Show legend
+plt.grid(True)  # Show grid
+
 plot_validation_results(x, t, f_true, p_true, p_hat, data.x_obs, data.t_obs, 
-                    validation_results_D['grid_results']['x_new'], validation_results_D['grid_results']['t_new'], x_path_D, t_path, u0)
+                    validation_results_D['grid_results']['x_new'], validation_results_D['grid_results']['t_new'], x_path_D, t_path, u0, validation_results_D['trajectory_results']['m'], optimality="D",)
+
+plot_validation_results(x, t, f_true, p_true, p_hat, data.x_obs, data.t_obs, 
+                    validation_results_A['grid_results']['x_new'], validation_results_A['grid_results']['t_new'], x_path_A, t_path, u0, validation_results_A['trajectory_results']['m'], optimality="A",)
+
+
 

@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import norm, lognorm
 
 # Import your existing modules
 from fplanck import D_param, forward_solve
@@ -31,6 +32,7 @@ def compare_oed_vs_random(data, p_c, K_extra, x_cand, t_cand,
     # Trajectory parameter bounds (same family as your optimized path)
     a2_lo, a2_hi = -1e-3, 1e-3
     a0_lo, a0_hi = x_min,  x_max
+    J_all = None
 
     for i in range(n_random):
         #sample a path fully within [x_min, x_max]
@@ -71,16 +73,19 @@ def compare_oed_vs_random(data, p_c, K_extra, x_cand, t_cand,
         print("\n D-optimal vs random designs (Bayesian):")
         print(f"det(F) – grid OED:      {Fval_fim:10.3e}")
         print(f"det(F) – trajectory OED:{Fval_traj:10.3e}")
-        print(f"random 50th pct:        {p50:10.3e}")
-        print(f"random 90th pct:        {p90:10.3e}")
-        print(f"random 99th pct:        {p99:10.3e}")
+        #print(f"random 50th pct:        {p50:10.3e}")
+        #print(f"random 90th pct:        {p90:10.3e}")
+        #print(f"random 99th pct:        {p99:10.3e}")
     elif optimality == "A":
         print("\n A-optimal vs random designs (Bayesian):")
         print(f"trace(C_post) grid OED:      {Fval_fim}")
         print(f"trace(C_post) trajectory OED:{-Fval_traj}")
-        print(f"random 50th pct:        {-p50}")
-        print(f"random 90th pct:        {-p90}")
-        print(f"random 99th pct:        {-p99}")
+        #print(f"random 50th pct:        {-p50}")
+        #print(f"random 90th pct:        {-p90}")
+        #print(f"random 99th pct:        {-p99}")
+
+    if J_all is None:
+        J_all = np.zeros((0, len(p_c)))
 
     return {'Fval_rand': Fval_rand, 'percentiles': {'p50': p50, 'p90': p90, 'p99': p99}, 'J_all': J_all, 'rand_paths': rand_paths}
 
@@ -179,9 +184,9 @@ def validate_oed_designs(
     print("Trajectory OED:")
     print(f"95% CI d0   = {np.exp(m_traj[0]-1.96*np.sqrt(C_traj[0,0])):.4g} to {np.exp(m_traj[0]+1.96*np.sqrt(C_traj[0,0])):.4g}")
     print(f"95% CI alpha = {m_traj[1]-1.96*np.sqrt(C_traj[1,1]):.4g} to {m_traj[1]+1.96*np.sqrt(C_traj[1,1]):.4g}")
-    print("Random 99th %:")
-    print(f"95% CI d0   = {np.exp(m_rand[0]-1.96*np.sqrt(C_rand[0,0])):.4g} to {np.exp(m_rand[0]+1.96*np.sqrt(C_rand[0,0])):.4g}")
-    print(f"95% CI alpha = {m_rand[1]-1.96*np.sqrt(C_rand[1,1]):.4g} to {m_rand[1]+1.96*np.sqrt(C_rand[1,1]):.4g}")
+    #print("Random 99th %:")
+    #print(f"95% CI d0   = {np.exp(m_rand[0]-1.96*np.sqrt(C_rand[0,0])):.4g} to {np.exp(m_rand[0]+1.96*np.sqrt(C_rand[0,0])):.4g}")
+    #print(f"95% CI alpha = {m_rand[1]-1.96*np.sqrt(C_rand[1,1]):.4g} to {m_rand[1]+1.96*np.sqrt(C_rand[1,1]):.4g}")
 
     # % reduction in 95% CI widths
     pr_d0_grid = _percent_reduction(w_d0_b, w_d0_g)
@@ -194,7 +199,7 @@ def validate_oed_designs(
     print("\n% reduction in 95% CI width:")
     print(f"Grid OED:       d0: {pr_d0_grid:6.2f}%   alpha: {pr_a_grid:6.2f}%")
     print(f"Trajectory OED: d0: {pr_d0_traj:6.2f}%   alpha: {pr_a_traj:6.2f}%")
-    print(f"Random 99th %:  d0: {pr_d0_rand:6.2f}%   alpha: {pr_a_rand:6.2f}%")
+    #print(f"Random 99th %:  d0: {pr_d0_rand:6.2f}%   alpha: {pr_a_rand:6.2f}%")
 
     return {
         'grid_results':       {'x_new': x_new, 't_new': t_new, 'm': m_grid, 'C': C_grid,
@@ -207,63 +212,119 @@ def validate_oed_designs(
     }
 
 def plot_validation_results(x, t, f_true, p_true, p_hat, x_obs, t_obs, 
-                           x_new, t_new, x_path, t_path, u0, ):
+                           x_new, t_new, x_path, t_path, u0,  m_traj, optimality):
     # Plot diffusion coefficient comparison
     D_true = D_param(x, p_true)  # tue diffusion coefficient
     D_est = D_param(x, p_hat)  # estimated diffusion coefficient
-
-    plt.figure()
-    plt.plot(x, D_true, label='True D(L)')  # Plot true D(L)
-    plt.plot(x, D_est, '--', label='Recovered D(L)')  # Plot estimated D(L)
-    plt.xlabel('L')  # x-axis label
-    plt.ylabel('D(L)')  # y-axis label
-    plt.title('True vs Recovered Diffusion Coefficient')  # Plot title
-    plt.legend()  # Show legend
-    plt.grid(True)  # Show grid
+    D_OED = D_param(x, m_traj)  # estimated diffusion coefficient
 
     # Plot solution comparison at different times
     f_rec = forward_solve(p_hat, x, t, u0)  # reconstructed solution
+    f_OED = forward_solve(m_traj, x, t, u0)  # reconstructed solution
     M = t.size  # Number of time points
-    time_idxs = [0, M // 3, 2 * M // 3, M - 1]  # Selected time indices
+    time_idxs = [M // 4, M // 3, M // 2]  # Selected time indices
 
-    plt.figure()
-    for n in time_idxs:
-        plt.plot(x, f_true[n], label=f"true t={t[n]:.2f}")  # True solution
-        plt.plot(x, f_rec[n], '--', label=f"est  t={t[n]:.2f}")  # Estimated solution
-    plt.xlabel('L')  # x-axis label
-    plt.ylabel('f(L, t)')  # y-axis label
-    plt.title('True vs Recovered f vs L at Several t')  # Plot title
-    plt.legend()  # Show legend
-    plt.grid(True)  # Show grid
-    plt.tight_layout()  # Adjust layout
+    if optimality == "D":
+        plt.figure()
+        for n in time_idxs:
+            plt.plot(x, f_true[n], label=f"True f @ t={t[n]:.2f}")  # True solution
+            plt.plot(x, f_rec[n], '--', label=f"Initial f @ t={t[n]:.2f}")  # Estimated solution
+            plt.plot(x, f_OED[n], '-.', label=f"OED f @ t={t[n]:.2f} (D-optimality)")  # Estimated OED solution
+        plt.xlabel('L')  # x-axis label
+        plt.ylabel('f(L, t)')  # y-axis label
+        plt.title('True vs Recovered f vs L at Several t')  # Plot title
+        plt.legend()  # Show legend
+        plt.grid(True)  # Show grid
+        plt.tight_layout()  # Adjust layout
+    elif optimality == "A":
+        plt.figure()
+        for n in time_idxs:
+            plt.plot(x, f_true[n], label=f"True f @ t={t[n]:.2f}")  # True solution
+            plt.plot(x, f_rec[n], '--', label=f"Initial f @ t={t[n]:.2f}")  # Estimated solution
+            plt.plot(x, f_OED[n], '-.', label=f"OED f @ t={t[n]:.2f} (A-optimality)")  # Estimated OED solution
+        plt.xlabel('L')  # x-axis label
+        plt.ylabel('f(L, t)')  # y-axis label
+        plt.title('True vs Recovered f vs L at Several t')  # Plot title
+        plt.legend()  # Show legend
+        plt.grid(True)  # Show grid
+        plt.tight_layout()  # Adjust layout
 
-    # Plot solution comparison at different spatial locations
+        # Plot solution comparison at different spatial locations
     N = x.size  # number of spatial points
-    space_idxs = [0, N // 3, 2 * N // 3, N - 1]  # Selected spatial indices
+    space_idxs = [N // 4, N // 3, N // 2]  # Selected spatial indices
 
-    plt.figure()
-    for j in space_idxs:
-        plt.plot(t, f_true[:, j], label=f"true L={x[j]:.2f}")  # True solution
-        plt.plot(t, f_rec[:, j], '--', label=f"est  L={x[j]:.2f}")  # Estimated solution
-    plt.xlabel('t')
-    plt.ylabel('f(L, t)')
-    plt.title('True vs Recovered f vs t at Several L')  # Plot title
-    plt.legend() 
-    plt.grid(True)  
-    plt.tight_layout()  # adjust layout
+    if optimality == "D":
+        plt.figure()
+        for j in space_idxs:
+            plt.plot(t, f_true[:, j], label=f"True f @ L={x[j]:.2f}")  # True solution
+            plt.plot(t, f_rec[:, j], '--', label=f"Initial f @ L={x[j]:.2f}")  # Estimated solution
+            plt.plot(t, f_OED[:, j], '-.', label=f"OED f @ L={x[j]:.2f} (D-optimality)")  # Estimated solution
+        plt.xlabel('t')
+        plt.ylabel('f(L, t)')
+        plt.title('True vs Recovered f vs t at Several L')  # Plot title
+        plt.legend() 
+        plt.grid(True)  
+        plt.tight_layout()  # adjust layout
+    if optimality == "A":
+        plt.figure()
+        for j in space_idxs:
+            plt.plot(t, f_true[:, j], label=f"True f @ L={x[j]:.2f}")  # True solution
+            plt.plot(t, f_rec[:, j], '--', label=f"Initial f @ L={x[j]:.2f}")  # Estimated solution
+            plt.plot(t, f_OED[:, j], '-.', label=f"OED f @ L={x[j]:.2f} (A-optimality)")  # Estimated solution
+        plt.xlabel('t')
+        plt.ylabel('f(L, t)')
+        plt.title('True vs Recovered f vs t at Several L')  # Plot title
+        plt.legend() 
+        plt.grid(True)  
+        plt.tight_layout()  # adjust layout
 
-    # Plot measurement locations
-    plt.figure()
-    plt.scatter(t_obs, x_obs, s=10, label="Experimental points")  # Original observations
-    plt.scatter(t_new, x_new, s=10, color="orange", label="D-optimal grid points")  # Grid OED points
-    plt.scatter(t_path, x_path, s=10, color="red", label="D-optimal Trajectory Points")  # Trajectory OED points
-    plt.legend(frameon=False) 
-    plt.xlabel("t") 
-    plt.ylabel("x")  
-    plt.title("Data Locations")  
-    plt.tight_layout() 
-    plt.show() 
+        # Plot measurement locations
+    if optimality == "D":
+        plt.figure()
+        plt.scatter(t_obs, x_obs, s=10, label="Experimental points")  # Original observations
+        plt.scatter(t_new, x_new, s=10, color="orange", label="D-optimal grid points")  # Grid OED points
+        plt.scatter(t_path, x_path, s=10, color="red", label="D-optimal Trajectory Points")  # Trajectory OED points
+        plt.legend(frameon=False) 
+        plt.xlabel("t") 
+        plt.ylabel("L")  
+        plt.title("Data Locations")  
+        plt.tight_layout() 
+        plt.show() 
+    if optimality == "A":
+        plt.figure()
+        plt.scatter(t_obs, x_obs, s=10, label="Experimental points")  # Original observations
+        plt.scatter(t_new, x_new, s=10, color="orange", label="A-optimal grid points")  # Grid OED points
+        plt.scatter(t_path, x_path, s=10, color="red", label="A-optimal Trajectory Points")  # Trajectory OED points
+        plt.legend(frameon=False) 
+        plt.xlabel("t") 
+        plt.ylabel("L")  
+        plt.title("Data Locations")  
+        plt.tight_layout() 
+        plt.show() 
 
+        """
+    if optimality == "D":
+        plt.figure()
+        plt.plot(x, D_true, label='True D(L)')  # Plot true D(L)
+        plt.plot(x, D_est, '--', label='Initial Recovered D(L)')  # Plot estimated D(L)
+        plt.plot(x, D_OED, '--', label='OED Recovered D(L) (D-optimality)')  # Plot estimated D(L)
+        plt.plot(x, D_OED, '-.', label='OED Recovered D(L) (A-optimality)')  # Plot estimated D(L)
+        plt.xlabel('L')  # x-axis label
+        plt.ylabel('D(L)')  # y-axis label
+        plt.title('True vs Recovered Diffusion Coefficients')  # Plot title
+        plt.legend()  # Show legend
+        plt.grid(True)  # Show grid
+    elif optimality == "A":
+        plt.figure()
+        plt.plot(x, D_true, label='True D(L)')  # Plot true D(L)
+        plt.plot(x, D_est, '--', label='Initial Recovered D(L)')  # Plot estimated D(L)
+        plt.plot(x, D_OED, '-.', label='OED Recovered D(L) (A-optimality)')  # Plot estimated D(L)
+        plt.xlabel('L')  # x-axis label
+        plt.ylabel('D(L)')  # y-axis label
+        plt.title('True vs Recovered Diffusion Coefficients')  # Plot title
+        plt.legend()  # Show legend
+        plt.grid(True)  # Show grid
+"""
 
 # Convenience function that runs the complete validation workflow
 def run_complete_oed_validation(data, result, cost_and_grad, p_hat, bounds, 
@@ -290,7 +351,7 @@ def run_complete_oed_validation(data, result, cost_and_grad, p_hat, bounds,
         x, t, f_true, p_true, p_hat, data.x_obs, data.t_obs,
         validation_results['grid_results']['x_new'], 
         validation_results['grid_results']['t_new'],
-        x_path, t_path, u0
+        x_path, t_path, u0, validation_results['traj_results']['u_new'], optimality
     )
     
     # Combine all results
@@ -298,3 +359,55 @@ def run_complete_oed_validation(data, result, cost_and_grad, p_hat, bounds,
         'comparison': comparison_results,
         'validation': validation_results
     }
+
+def postpriorplot(data, m_post, C_post, D_m_traj, D_C_traj, A_m_traj, A_C_traj):
+    mu0_theta, mu0_alpha = data.prior
+    s0_theta,  s0_alpha  = data.prior_std
+
+    m_theta,   m_alpha   = float(m_post[0]), float(m_post[1])
+    s_theta,   s_alpha   = float(np.sqrt(C_post[0,0])), float(np.sqrt(C_post[1,1]))
+    D_m_theta, D_m_alpha = float(D_m_traj[0]), float(D_m_traj[1])
+    D_s_theta, D_s_alpha = float(np.sqrt(D_C_traj[0,0])), float(np.sqrt(D_C_traj[1,1]))
+    A_m_theta, A_m_alpha = float(A_m_traj[0]), float(A_m_traj[1])
+    A_s_theta, A_s_alpha = float(np.sqrt(A_C_traj[0,0])), float(np.sqrt(A_C_traj[1,1]))
+
+    s_prior_d0, scale_prior_d0 = s0_theta, np.exp(mu0_theta)
+    s_post_d0,  scale_post_d0  = s_theta,  np.exp(m_theta)
+    D_s_post_d0, D_scale_post_d0 = D_s_theta, np.exp(D_m_theta)
+    A_s_post_d0, A_scale_post_d0 = A_s_theta, np.exp(A_m_theta)
+
+    # 1) Plot in parameter space: theta = log d0 (Normal) and alpha (Normal)
+    d0_lo = min(lognorm.ppf(1e-4, s_prior_d0, scale=scale_prior_d0),
+            lognorm.ppf(1e-4, s_post_d0,  scale=scale_post_d0), lognorm.ppf(1e-4, D_s_post_d0,  scale=D_scale_post_d0), lognorm.ppf(1e-4, A_s_post_d0,  scale=A_scale_post_d0))
+    d0_hi = max(lognorm.ppf(1-1e-4, s_prior_d0, scale=scale_prior_d0),
+            lognorm.ppf(1-1e-4, s_post_d0,  scale=scale_post_d0), lognorm.ppf(1-1e-4, D_s_post_d0,  scale=D_scale_post_d0), lognorm.ppf(1-1e-4, A_s_post_d0,  scale=A_scale_post_d0))
+
+    alpha_lo = min(norm.ppf(1e-4, mu0_alpha, s0_alpha), norm.ppf(1-1e-4, m_alpha, s_alpha), norm.ppf(1e-4, D_m_alpha, D_s_alpha), norm.ppf(1e-4, A_m_alpha, A_s_alpha))
+    alpha_hi = max(norm.ppf(1-1e-4, mu0_alpha, s0_alpha), norm.ppf(1-1e-4, m_alpha, s_alpha), norm.ppf(1-1e-4, D_m_alpha, D_s_alpha), norm.ppf(1-1e-4, A_m_alpha, A_s_alpha))
+    alpha_grid = np.linspace(alpha_lo, alpha_hi, 600)
+
+    d0_grid = np.linspace(max(1e-12, d0_lo), d0_hi, 600)
+
+    plt.figure()
+    plt.plot(d0_grid, lognorm.pdf(d0_grid, s_prior_d0, scale=scale_prior_d0), label='Prior d0')
+    plt.plot(d0_grid, lognorm.pdf(d0_grid, s_post_d0,  scale=scale_post_d0),  label='Initial Posterior d0')
+    plt.plot(d0_grid, lognorm.pdf(d0_grid, D_s_post_d0, scale=D_scale_post_d0), label='OED Posterior d0 (D-Optimality)', linestyle='-.')
+    plt.plot(d0_grid, lognorm.pdf(d0_grid, A_s_post_d0, scale=A_scale_post_d0),  label='OED Posterior d0 (A-Optimality)', linestyle='--')
+    plt.axvline(0.01, ls='--', lw=1, color='k', label='True d0')   
+    plt.xlabel('d0')
+    plt.xlim(0, 0.05)  
+    plt.ylabel('density')
+    plt.title('Probability Density Functions of d0')
+    plt.legend(); plt.grid(True)
+
+    plt.figure()
+    plt.plot(alpha_grid, norm.pdf(alpha_grid, mu0_alpha, s0_alpha), label='Prior α')
+    plt.plot(alpha_grid, norm.pdf(alpha_grid, m_alpha,  s_alpha),  label='Initial Posterior α')
+    plt.plot(alpha_grid, norm.pdf(alpha_grid, D_m_alpha, D_s_alpha), label='OED Posterior α (D-Optimality)', linestyle='-.')
+    plt.plot(alpha_grid, norm.pdf(alpha_grid, A_m_alpha, A_s_alpha),  label='OED Posterior α (A-Optimality)', linestyle='--')
+    plt.axvline(3.0, ls='--', lw=1, color='k', label='True α') 
+    plt.xlabel('α')
+    plt.xlim(0, 5)  
+    plt.ylabel('density')
+    plt.title('Probability Density Functions of α')
+    plt.legend(); plt.grid(True)

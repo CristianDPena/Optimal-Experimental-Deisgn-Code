@@ -146,21 +146,22 @@ def _greedy_optimal(p_hat, data, x_cand, t_cand, K_new, sigma2_new, optimality):
 # SECTION 10: TRAJECTORY-BASED OPTIMAL EXPERIMENTAL DESIGN
 # ===================================================================
 def _traj_x(t, pars):
+    s = (t - t.min()) / max(t.max() - t.min(), 1e-12)
+    
     # Oscillating parabola trajectory: x(t) = (a_2*t^2 + a_1*t + a_0) + A*sin(omega*t + phi)
     a2, a0  = pars  # Extract trajectory parameters
-    a1  = -a2*(t.max() + t.min())
+    a1  = -a2
     #oscillation parameters
     #amplitude
-    T = t.max() - t.min()  # Total time
-    amp_ctrl = [(0.0, 3), (T / 2, 0.5), (T, 1)]  #Amplitude control points
+
+    amp_ctrl = [(0.0,  2.25), (1/2,  0.5), (1,    2.5)]  #Amplitude control points
     t_amp, A_amp = zip(*amp_ctrl) #unpack into 2 vectors
-    amp_a2, amp_a1, amp_a0 = np.polyfit(t_amp, A_amp, 2) #fit a quadratic curve using those points
-    A = amp_a2*t**2 + amp_a1*t + amp_a0 #evaluate the curve at each t
+    A = np.polyval(np.polyfit(t_amp, A_amp, 2), s)
     #other parameters
     n_cycles = 10
     omg = 2*np.pi * n_cycles/t.max()
     phi = 0
-    return a2 * t * t + a1 * t + a0 + A * np.sin(omg * t + phi)  # Compute trajectory
+    return a2 * s * s + a1 * s + a0 + A * np.sin(omg * s + phi)  # Compute trajectory
 
 def _fim_of_traj(pars, p_hat, data, t_lo, t_hi, n_pts, sigma2, optimality, eps_fd=1e-6):
     # Compute det(FIM) for a trajectory with given parameters
@@ -189,7 +190,7 @@ def optimise_trajectory(p_hat, data, t_bounds, n_pts, sigma2, seed, optimality):
     # Optimize trajectory parameters to maximize det(FIM)
 
     # define parameter bounds for trajectory optimization
-    a2_lo, a2_hi = -1e-3, 1e-3  # Quadratic coefficient bounds
+    a2_lo, a2_hi = 0, 1e-3  # Quadratic coefficient bounds
     a0_lo, a0_hi = data.x.min(), data.x.max()  # Constant coefficient bounds
 
     bounds = [(a2_lo, a2_hi), (a0_lo, a0_hi)]

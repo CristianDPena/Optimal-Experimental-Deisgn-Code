@@ -32,29 +32,55 @@ def gen_continuous_oscillating_data(
     oscillation = amp_envelope * np.sin(2*np.pi * n_cycles * t_obs / total_time) #amp_envelope scales the sine wave
 
     #generate full function x(t)
-    x_obs = envelope + oscillation
+    x_obs = envelope + oscillation*envelope
 
     return t_obs, x_obs
 
-"""
 # Example parameters:
-T        = 160.0
-env_ctrl = [(0.0, 21.0), (T/2,  11.0), (T,   16.0)]
-amp_ctrl = [(0.0,  3), (T/2,  0.5), (T,    1)]
+T        = 200000
+env_ctrl = [(0.0, 20.0), (T/2,  10.0), (T,   16.0)]
+amp_ctrl = [(0.0,  0.1), (T/2,  0.0125), (T,    0.125)]
 n_cycles = 10
 
 t_obs, x_obs = gen_continuous_oscillating_data(
-    n_points=150,
+    n_points=175,
     total_time=T,
     env_ctrl=env_ctrl,
     amp_ctrl=amp_ctrl,
     n_cycles=n_cycles
 )
 
-plt.figure()
-plt.scatter(t_obs, x_obs, s=10, label="Experimental points")
-plt.xlabel("t")
-plt.ylabel("x")
-plt.title("Synthetic Data Locations")
+"""
+def load_single_orbit_xt(filename):
+    from InitialFPsolver.utils import remove_duplicates
+    # 1. Load raw data
+    xin, tin = np.loadtxt(filename,
+                          usecols=[1, 0],
+                          unpack=True,
+                          skiprows=1)
+
+    return xin, tin
+
+x, t = load_single_orbit_xt("singleOrbit_t50_10MeV.txt")
+selected_x = []
+selected_t = []
+
+for i in range(len(t)):
+    if 2.42375e8 < t[i] < 2.42575e8:
+        selected_x.append(x[i])
+        selected_t.append(t[i])
+
+t_norm = selected_t - np.full(len(selected_t), 2.42375e8)
+fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+axs[0].scatter(t_norm, selected_x, s=10)
+axs[0].set_xlabel("t (time)")
+axs[0].set_ylabel("L (L-shell )")
+axs[0].set_ylim(9, 24)
+axs[0].set_title("Experimental Data Locations")
+axs[1].scatter(t_obs, x_obs, s=10)
+axs[1].set_xlabel("t (time)")
+axs[1].set_ylabel("L (L-shell)")
+axs[1].set_ylim(9, 24)
+axs[1].set_title("Synthetic Data Locations")
 plt.show()
 """

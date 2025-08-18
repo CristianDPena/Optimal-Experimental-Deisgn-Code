@@ -1,11 +1,6 @@
 import numpy as np
 import scipy
-from scipy.sparse import diags
 from scipy.sparse.linalg import splu
-from scipy.optimize import minimize, Bounds
-from dataclasses import dataclass
-from typing import Tuple, List
-import matplotlib.pyplot as plt
 
 from fplanck import D_param, D_partials, build_L_matrix
 
