@@ -12,7 +12,7 @@ from bilinearinterpolation import precompute_obs_weights, apply_H
 from adjointgradient import build_injection, adjoint_solve, compute_gradient_adjoint
 
 # ===================================================================
-# SECTION 8: OPTIMAL EXPERIMENTAL DESIGN (OED) UTILITIES
+# SECTION 8: OED
 # ===================================================================
 
 def _build_J_global_adj(p, data, x_cand, t_cand):
@@ -88,7 +88,7 @@ def _candidate_grid(x_lo_hi, t_lo_hi, n_x=25, n_t=20):
     # Generate grid of candidate (t,x) locations
     xs = np.linspace(x_lo_hi[0], x_lo_hi[1], n_x, dtype=float)  # Spatial candidates
     ts = np.linspace(t_lo_hi[0], t_lo_hi[1], n_t, dtype=float)  # Time candidates
-    Tm, Xm = np.meshgrid(ts, xs, indexing="xy")  # Create meshgrid
+    Tm, Xm = np.meshgrid(ts, xs, indexing="xy")  
     return Xm.ravel(), Tm.ravel()
 
 def _greedy_d_optimal(p_hat, data, x_cand, t_cand, K_new, sigma2_new):
@@ -103,7 +103,7 @@ def _greedy_d_optimal(p_hat, data, x_cand, t_cand, K_new, sigma2_new):
     FIM = np.linalg.inv(C_prior)  # Bayesian information starts with prior
     remaining = list(range(m_cand))  # Remaining candidate indices
 
-    # Greedy selection (pick point that maximizes det(FIM))
+    # Greedy selection 
     for _ in range(K_new):
         best_det, best_idx = -np.inf, None
 
@@ -146,7 +146,7 @@ def _fim_of_traj(pars, p_hat, data, t_lo, t_hi, n_pts, sigma2, eps_fd=1e-6):
     return np.linalg.det(F)  # Return determinant
 
 def optimise_trajectory(p_hat, data, t_bounds, n_pts, sigma2, seed=2):
-    # Optimize trajectory parameters to maximize det(FIM)
+    # Opimize trajectory parameters to maximize det(FIM)
 
     # define parameter bounds for trajectory optimization
     a2_lo, a2_hi = -1e-3, 1e-3  # Quadratic coefficient bounds
@@ -163,7 +163,7 @@ def optimise_trajectory(p_hat, data, t_bounds, n_pts, sigma2, seed=2):
         # Negative determinant for minimization
         return -_fim_of_traj(pars, p_hat, data, t_bounds[0], t_bounds[1], n_pts, sigma2)
 
-    # Use differential evolution for global optimization
+    # optimization
     res = scipy.optimize.differential_evolution(_neg_det, bounds,
                                                 strategy="best1bin",
                                                 popsize=20, maxiter=120,
