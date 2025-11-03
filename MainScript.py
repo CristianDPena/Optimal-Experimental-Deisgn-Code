@@ -30,7 +30,7 @@ from inversesolver import laplace_bayes_solve
 if __name__ == "__main__":
     rngOED_seed = noise_seed = 2
 
-    T = 200  # Total time duration
+    T = 200  # Total time 
     env_ctrl = [(0.0, 21.0), (T / 2, 11.0), (T, 16.0)]  # Environment control points
     amp_ctrl = [(0.0, 3), (T / 2, 0.5), (T, 1)]  #Amplitude control points
     n_cycles = 10  # Nnumber of oscillation cycles
@@ -80,21 +80,16 @@ if __name__ == "__main__":
         prior_std=(0.5, 2)  # Prior standard deviations
     )
 
-    # ---------------------------------------------------------------
-    # Parameter Estimation
-    # ---------------------------------------------------------------
-    # Set up optimization bounds and monitoring
+    # Set up optimization
     p_prior = np.array(data.prior)  # Prior means
     p_prior_std = np.array(data.prior_std)  # Prior standard deviations
 
 
     def pack(q):
-        # Transform normalized variables q to physical parameters p
         return p_prior + q * p_prior_std
 
 
     def unpack(p):
-        # Transform physical parameters p to normalized variables q
         return (p - p_prior) / p_prior_std
 
 
@@ -113,7 +108,7 @@ if __name__ == "__main__":
     def cost_and_grad(p, *args):
         # Wrapper for cost and gradient with monitoring
         J, g = J_and_grad(p, *args)
-        mon(p, J, g, args[0])  # Print progress
+        mon(p, J, g, args[0])  
         return J, g
 
 
@@ -128,15 +123,13 @@ print(f"95% CI alpha = {m_post[1]-1.96*np.sqrt(C_post[1,1]):.4g} to {m_post[1]+1
 # use posterior mean for design center
 p_hat = m_post.copy()
 
-# Report in original parameterization
+# original parameterization
 post_mean_d0  = np.exp(m_post[0])
 post_std_d0   = np.exp(m_post[0]) * np.sqrt(C_post[0,0])  # delta-method approx
 post_mean_a   = m_post[1]
 post_std_a    = np.sqrt(C_post[1,1])
 
-# ---------------------------------------------------------------
 # D-Optimal Experimental Design: Grid-Based Selection
-# ---------------------------------------------------------------
 K_extra = 50  # Number of additional measurements
 
 # Generate candidate measurement locations
@@ -146,9 +139,7 @@ K_extra = 50  # Number of additional measurements
 #p_hat = m_post.copy()
 #sel_idx, det_fim = _greedy_d_optimal(p_hat, data, x_cand, t_cand, K_extra, noise ** 2)
 
-# ---------------------------------------------------------------
 # D-Optimal Experimefntal Design: Trajectory-Based Selection
-# ---------------------------------------------------------------
 t_lo_hi = (t.min(), t.max())  # Time bounds for trajectory
 n_track = K_extra  # Number of points along trajectory
 
