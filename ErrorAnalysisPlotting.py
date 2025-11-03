@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Import your existing modules
+# Import existing modules
 from fplanck import D_param, forward_solve
 from bilinearinterpolation import precompute_obs_weights, apply_H
 from inversesolver import sequential_update
@@ -11,16 +11,12 @@ from DoptimalOED import _build_J_global_fd
 def compare_oed_vs_random(data, p_c, K_extra, x_cand, t_cand, 
                           det_fim, det_traj, noise, n_random=1000, rngOED_seed=42):
 
-    #Compare D-opt det(F) vs random designs using Bayesian info: F = C0^-1 + J^T Gamma^-1 J.
-
-
     # Sensitivities at candidate points, linearized at p_c
     J_all = _build_J_global_fd(p_c, data, x_cand, t_cand, eps=1e-6)
 
     #prior info
     C0inv = np.linalg.inv(np.diag(np.asarray(data.prior_std, float)**2))
 
-    # If noise is scalar, Gamma = noise^2 I -> whiten J by 1/noise
     Jw = J_all / noise
 
     rng = np.random.default_rng(rngOED_seed)
@@ -86,7 +82,7 @@ def validate_oed_designs(
         H_w_new = precompute_obs_weights(x, t, x_new, t_new)
         y_true_new = apply_H(f_true, H_w_new)                      # noiseless truth at new points
 
-        # Build per-point noise std (supports scalar or heteroscedastic)
+        # Build per-point noise std
         std_new = _noise_std(y_true_new, noise)
         sigma2_new = std_new**2
 
@@ -134,7 +130,6 @@ def validate_oed_designs(
     print(f"95% CI d0   = {np.exp(m_rand[0]-1.96*np.sqrt(C_rand[0,0])):.4g} to {np.exp(m_rand[0]+1.96*np.sqrt(C_rand[0,0])):.4g}")
     print(f"95% CI alpha = {m_rand[1]-1.96*np.sqrt(C_rand[1,1]):.4g} to {m_rand[1]+1.96*np.sqrt(C_rand[1,1]):.4g}")
 
-    #print % range reduction in 95% CIs
     pr_d0_grid = _percent_reduction(w_d0_b, w_d0_g)
     pr_a_grid  = _percent_reduction(w_a_b,  w_a_g)
     pr_d0_traj = _percent_reduction(w_d0_b, w_d0_t)
@@ -181,12 +176,12 @@ def plot_validation_results(x, t, f_true, p_true, p_hat, x_obs, t_obs,
     for n in time_idxs:
         plt.plot(x, f_true[n], label=f"true t={t[n]:.2f}")  # True solution
         plt.plot(x, f_rec[n], '--', label=f"est  t={t[n]:.2f}")  # Estimated solution
-    plt.xlabel('L')  # x-axis label
-    plt.ylabel('f(L, t)')  # y-axis label
-    plt.title('True vs Recovered f vs L at Several t')  # Plot title
-    plt.legend()  # Show legend
-    plt.grid(True)  # Show grid
-    plt.tight_layout()  # Adjust layout
+    plt.xlabel('L')  
+    plt.ylabel('f(L, t)') 
+    plt.title('True vs Recovered f vs L at Several t') 
+    plt.legend()  
+    plt.grid(True)  
+    plt.tight_layout() 
 
     # Plot solution comparison at different spatial locations
     N = x.size  # number of spatial points
@@ -198,10 +193,10 @@ def plot_validation_results(x, t, f_true, p_true, p_hat, x_obs, t_obs,
         plt.plot(t, f_rec[:, j], '--', label=f"est  L={x[j]:.2f}")  # Estimated solution
     plt.xlabel('t')
     plt.ylabel('f(L, t)')
-    plt.title('True vs Recovered f vs t at Several L')  # Plot title
+    plt.title('True vs Recovered f vs t at Several L') 
     plt.legend() 
     plt.grid(True)  
-    plt.tight_layout()  # adjust layout
+    plt.tight_layout()  
 
     # Plot measurement locations
     plt.figure()
@@ -216,7 +211,6 @@ def plot_validation_results(x, t, f_true, p_true, p_hat, x_obs, t_obs,
     plt.show() 
 
 
-# Convenience function that runs the complete validation workflow
 def run_complete_oed_validation(data, result, cost_and_grad, p_hat, bounds, 
                                K_extra, x_cand, t_cand, det_fim, det_traj, 
                                x, t, u0, sel_idx, x_path, t_path, f_true, 
