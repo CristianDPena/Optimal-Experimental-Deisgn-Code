@@ -14,11 +14,10 @@ dependencies:
   - tudatpy=0.9
   # numpy must be <2.0 for tudatpy v0.9
   - numpy<2.0
-  # optional: standard scientific stack
   - matplotlib
   - scipy
   - pandas
-  # optional: jupyter support if you plan to use notebooks
+  # jupyter support
   - ipython
   - ipykernel
   - jupyter
